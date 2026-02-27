@@ -50,6 +50,10 @@ Settings (`TimestampSettings`): heading level (H1–H6), cursor on empty line be
 
 Daily note conventions: files live at `daily/{YYYY-MM-DD}.md`, first line is `# YYYY-MM-DD`, timestamp headings are appended at the end of the file.
 
+## References
+
+- Always refer to https://docs.obsidian.md/Home for the latest Obsidian plugin development APIs and best practices.
+
 ## Key constraints
 
 - Undocumented Obsidian APIs (`app.vault.getConfig()`, `editor.cm`) use `eslint-disable` comments with `any` casts — not `@ts-ignore`.
