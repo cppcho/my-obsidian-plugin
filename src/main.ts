@@ -1,99 +1,111 @@
-import {App, Editor, MarkdownView, Modal, Notice, Plugin} from 'obsidian';
-import {DEFAULT_SETTINGS, MyPluginSettings, SampleSettingTab} from "./settings";
+import {App, Editor, MarkdownView, Plugin} from "obsidian";
 
-// Remember to rename these classes and interfaces!
-
-export default class MyPlugin extends Plugin {
-	settings: MyPluginSettings;
-
-	async onload() {
-		await this.loadSettings();
-
-		// This creates an icon in the left ribbon.
-		this.addRibbonIcon('dice', 'Sample', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status bar text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-modal-simple',
-			name: 'Open modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
-		// This adds an editor command that can perform some operation on the current editor instance
-		this.addCommand({
-			id: 'replace-selected',
-			name: 'Replace selected content',
-			editorCallback: (editor: Editor, view: MarkdownView) => {
-				editor.replaceSelection('Sample editor command');
-			}
-		});
-		// This adds a complex command that can check whether the current state of the app allows execution of the command
-		this.addCommand({
-			id: 'open-modal-complex',
-			name: 'Open modal (complex)',
-			checkCallback: (checking: boolean) => {
-				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
-					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
-				}
-				return false;
-			}
-		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			new Notice("Click");
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
-
-	}
-
-	onunload() {
-	}
-
-	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as Partial<MyPluginSettings>);
-	}
-
-	async saveSettings() {
-		await this.saveData(this.settings);
-	}
+function enterVimInsertMode(app: App) {
+	// @ts-ignore
+	if (!app.vault.getConfig("vimMode")) return;
+	const view = app.workspace.getActiveViewOfType(MarkdownView);
+	if (!view) return;
+	// @ts-ignore
+	const cm = view.editor.cm;
+	if (!cm) return;
+	cm.contentDOM.dispatchEvent(
+		new KeyboardEvent("keydown", {
+			key: "i",
+			code: "KeyI",
+			bubbles: true,
+			cancelable: true,
+		}),
+	);
 }
 
-class SampleModal extends Modal {
-	constructor(app: App) {
-		super(app);
+function findLine(editor: Editor, re: RegExp, maxLine?: number): number {
+	const limit = maxLine ?? editor.lineCount();
+	for (let i = 0; i < limit; i++) {
+		if (re.test(editor.getLine(i))) return i;
+	}
+	return -1;
+}
+
+function insertOrNavigateTimestamp(editor: Editor, app: App) {
+	const now = new Date();
+	const timeStr =
+		String(now.getHours()).padStart(2, "0") +
+		":" +
+		String(now.getMinutes()).padStart(2, "0");
+
+	const titleLine = findLine(editor, /^# \d{4}-\d{2}-\d{2}/, 10);
+	if (titleLine === -1) return;
+
+	const headingRe = new RegExp(`^## ${timeStr} ?$`);
+	let headingLine = findLine(editor, headingRe);
+
+	// Insert heading if it doesn't exist
+	if (headingLine === -1) {
+		editor.replaceRange(`## ${timeStr} \n`, {line: titleLine + 1, ch: 0});
+		headingLine = titleLine + 1;
 	}
 
-	onOpen() {
-		let {contentEl} = this;
-		contentEl.setText('Woah!');
+	// Find end of heading's content block
+	let endLine = headingLine;
+	for (let j = headingLine + 1; j < editor.lineCount(); j++) {
+		if (editor.getLine(j).startsWith("## ")) break;
+		endLine = j;
+	}
+	while (endLine > headingLine && editor.getLine(endLine).trim() === "") {
+		endLine--;
 	}
 
-	onClose() {
-		const {contentEl} = this;
-		contentEl.empty();
+	if (endLine === headingLine) {
+		// No content — ensure a blank line exists after heading
+		const next = headingLine + 1;
+		if (next >= editor.lineCount() || editor.getLine(next).startsWith("## ")) {
+			editor.replaceRange("\n", {line: headingLine, ch: editor.getLine(headingLine).length});
+		}
+		editor.setCursor({line: headingLine + 1, ch: 0});
+	} else {
+		editor.setCursor({line: endLine, ch: editor.getLine(endLine).length});
+	}
+	enterVimInsertMode(app);
+}
+
+export default class DailyTimestampPlugin extends Plugin {
+	async onload() {
+		this.addCommand({
+			id: "insert-or-navigate-timestamp",
+			name: "Insert or navigate to timestamp",
+			callback: async () => {
+				const now = new Date();
+				const dateStr =
+					now.getFullYear() +
+					"-" +
+					String(now.getMonth() + 1).padStart(2, "0") +
+					"-" +
+					String(now.getDate()).padStart(2, "0");
+				const dailyPath = `daily/${dateStr}.md`;
+
+				const activeFile = this.app.workspace.getActiveFile();
+
+				if (activeFile?.path !== dailyPath) {
+					const file = this.app.vault.getAbstractFileByPath(dailyPath);
+					if (!file) return;
+
+					const leaf = this.app.workspace
+						.getLeavesOfType("markdown")
+						.find((l) => (l.view as MarkdownView).file?.path === dailyPath);
+
+					if (leaf) {
+						this.app.workspace.setActiveLeaf(leaf, {focus: true});
+					} else {
+						await this.app.workspace.getLeaf(false).openFile(file as any);
+					}
+				}
+
+				// Wait for editor to be ready (needed when switching tabs/opening files)
+				setTimeout(() => {
+					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+					if (view) insertOrNavigateTimestamp(view.editor, this.app);
+				}, activeFile?.path === dailyPath ? 0 : 100);
+			},
+		});
 	}
 }
