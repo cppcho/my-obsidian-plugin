@@ -1,5 +1,7 @@
-import {App, MarkdownView, Plugin, PluginSettingTab, Setting, TFile} from "obsidian";
-import {insertOrNavigateTimestamp, TimestampSettings} from "./editor-utils";
+import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, moment } from "obsidian";
+import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
+import { insertOrNavigateTimestamp, TimestampSettings } from "./editor-utils";
+import { getOrCreateDailyNote } from "./daily-note-utils";
 
 const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
@@ -35,7 +37,7 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 		containerEl.empty();
 
 		new Setting(containerEl)
@@ -96,27 +98,24 @@ export default class DailyTimestampPlugin extends Plugin {
 			name: "Insert or navigate to timestamp",
 			callback: async () => {
 				const now = new Date();
-				const dateStr =
-					now.getFullYear() +
-					"-" +
-					String(now.getMonth() + 1).padStart(2, "0") +
-					"-" +
-					String(now.getDate()).padStart(2, "0");
-				const dailyPath = `daily/${dateStr}.md`;
+				const adapter = { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote };
+				const file = await getOrCreateDailyNote(adapter, moment());
+				if (!file) {
+					new Notice("Enable the Daily Notes core plugin to use this command."); // eslint-disable-line obsidianmd/ui/sentence-case
+					return;
+				}
+				const dailyPath = file.path;
 
 				const activeFile = this.app.workspace.getActiveFile();
 				const alreadyOpen = activeFile?.path === dailyPath;
 
 				if (!alreadyOpen) {
-					const file = this.app.vault.getAbstractFileByPath(dailyPath);
-					if (!(file instanceof TFile)) return;
-
 					const leaf = this.app.workspace
 						.getLeavesOfType("markdown")
 						.find((l) => l.view instanceof MarkdownView && l.view.file?.path === dailyPath);
 
 					if (leaf) {
-						this.app.workspace.setActiveLeaf(leaf, {focus: true});
+						this.app.workspace.setActiveLeaf(leaf, { focus: true });
 					} else {
 						await this.app.workspace.getLeaf(false).openFile(file);
 					}

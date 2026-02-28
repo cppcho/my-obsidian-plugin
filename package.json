@@ -27,6 +27,7 @@
 		"vitest": "^4.0.18"
 	},
 	"dependencies": {
-		"obsidian": "latest"
+		"obsidian": "latest",
+		"obsidian-daily-notes-interface": "^0.9.4"
 	}
 }
