@@ -1,13 +1,30 @@
-import {App, Editor, MarkdownView, Plugin} from "obsidian";
+import {App, Editor, MarkdownView, Plugin, PluginSettingTab, Setting, TFile} from "obsidian";
+import {
+	insertOrNavigateTimestamp as insertOrNavigateTimestampCore,
+	AppAdapter,
+} from "./editor-utils";
+
+interface DailyTimestampSettings {
+	headingLevel: number;
+	cursorOnEmptyLine: boolean;
+	vimInsertMode: boolean;
+}
+
+const DEFAULT_SETTINGS: DailyTimestampSettings = {
+	headingLevel: 3,
+	cursorOnEmptyLine: false,
+	vimInsertMode: false,
+};
 
 function enterVimInsertMode(app: App) {
-	// @ts-ignore
-	if (!app.vault.getConfig("vimMode")) return;
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- undocumented Obsidian API
+	if (!(app.vault as any).getConfig("vimMode")) return;
 	const view = app.workspace.getActiveViewOfType(MarkdownView);
 	if (!view) return;
-	// @ts-ignore
-	const cm = view.editor.cm;
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any -- undocumented Obsidian API
+	const cm = (view.editor as any).cm;
 	if (!cm) return;
+	// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access -- undocumented Obsidian API
 	cm.contentDOM.dispatchEvent(
 		new KeyboardEvent("keydown", {
 			key: "i",
@@ -18,58 +35,87 @@ function enterVimInsertMode(app: App) {
 	);
 }
 
-function findLine(editor: Editor, re: RegExp, maxLine?: number): number {
-	const limit = maxLine ?? editor.lineCount();
-	for (let i = 0; i < limit; i++) {
-		if (re.test(editor.getLine(i))) return i;
-	}
-	return -1;
+function wrapApp(app: App): AppAdapter {
+	return {
+		isVimMode() {
+			// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- undocumented Obsidian API
+			return !!(app.vault as any).getConfig("vimMode");
+		},
+		enterVimInsertMode() {
+			enterVimInsertMode(app);
+		},
+	};
 }
 
-function insertOrNavigateTimestamp(editor: Editor, app: App) {
-	const now = new Date();
-	const timeStr =
-		String(now.getHours()).padStart(2, "0") +
-		":" +
-		String(now.getMinutes()).padStart(2, "0");
+function insertOrNavigateTimestamp(editor: Editor, app: App, settings: DailyTimestampSettings) {
+	insertOrNavigateTimestampCore(editor, wrapApp(app), settings);
+}
 
-	const titleLine = findLine(editor, /^# \d{4}-\d{2}-\d{2}/, 10);
-	if (titleLine === -1) return;
+class DailyTimestampSettingTab extends PluginSettingTab {
+	plugin: DailyTimestampPlugin;
 
-	const headingRe = new RegExp(`^## ${timeStr} ?$`);
-	let headingLine = findLine(editor, headingRe);
-
-	// Insert heading if it doesn't exist
-	if (headingLine === -1) {
-		editor.replaceRange(`## ${timeStr} \n`, {line: titleLine + 1, ch: 0});
-		headingLine = titleLine + 1;
+	constructor(app: App, plugin: DailyTimestampPlugin) {
+		super(app, plugin);
+		this.plugin = plugin;
 	}
 
-	// Find end of heading's content block
-	let endLine = headingLine;
-	for (let j = headingLine + 1; j < editor.lineCount(); j++) {
-		if (editor.getLine(j).startsWith("## ")) break;
-		endLine = j;
-	}
-	while (endLine > headingLine && editor.getLine(endLine).trim() === "") {
-		endLine--;
-	}
+	display(): void {
+		const {containerEl} = this;
+		containerEl.empty();
 
-	if (endLine === headingLine) {
-		// No content — ensure a blank line exists after heading
-		const next = headingLine + 1;
-		if (next >= editor.lineCount() || editor.getLine(next).startsWith("## ")) {
-			editor.replaceRange("\n", {line: headingLine, ch: editor.getLine(headingLine).length});
-		}
-		editor.setCursor({line: headingLine + 1, ch: 0});
-	} else {
-		editor.setCursor({line: endLine, ch: editor.getLine(endLine).length});
+		new Setting(containerEl)
+			.setName("Heading level")
+			.setDesc("Choose the heading level for timestamp entries (H1-H6)") // eslint-disable-line obsidianmd/ui/sentence-case
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						"1": "H1",
+						"2": "H2",
+						"3": "H3",
+						"4": "H4",
+						"5": "H5",
+						"6": "H6",
+					})
+					.setValue(String(this.plugin.settings.headingLevel))
+					.onChange(async (value) => {
+						this.plugin.settings.headingLevel = parseInt(value);
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Cursor on empty line below heading")
+			.setDesc("When enabled, cursor is placed on an empty line below the heading instead of on the heading line")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.cursorOnEmptyLine)
+					.onChange(async (value) => {
+						this.plugin.settings.cursorOnEmptyLine = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Enter vim insert mode")
+			.setDesc("When enabled, automatically enter insert mode after navigation (requires vim mode)")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.vimInsertMode)
+					.onChange(async (value) => {
+						this.plugin.settings.vimInsertMode = value;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
-	enterVimInsertMode(app);
 }
 
 export default class DailyTimestampPlugin extends Plugin {
+	settings: DailyTimestampSettings;
+
 	async onload() {
+		await this.loadSettings();
+		this.addSettingTab(new DailyTimestampSettingTab(this.app, this));
+
 		this.addCommand({
 			id: "insert-or-navigate-timestamp",
 			name: "Insert or navigate to timestamp",
@@ -96,16 +142,25 @@ export default class DailyTimestampPlugin extends Plugin {
 					if (leaf) {
 						this.app.workspace.setActiveLeaf(leaf, {focus: true});
 					} else {
-						await this.app.workspace.getLeaf(false).openFile(file as any);
+						if (file instanceof TFile) {
+						await this.app.workspace.getLeaf(false).openFile(file);
+					}
 					}
 				}
 
-				// Wait for editor to be ready (needed when switching tabs/opening files)
 				setTimeout(() => {
 					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-					if (view) insertOrNavigateTimestamp(view.editor, this.app);
+					if (view) insertOrNavigateTimestamp(view.editor, this.app, this.settings);
 				}, activeFile?.path === dailyPath ? 0 : 100);
 			},
 		});
+	}
+
+	async loadSettings() {
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as DailyTimestampSettings | null);
+	}
+
+	async saveSettings() {
+		await this.saveData(this.settings);
 	}
 }

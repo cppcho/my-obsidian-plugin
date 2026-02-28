@@ -15,6 +15,8 @@ pnpm run build        # production build (typecheck + esbuild)
 pnpm run lint         # eslint
 ```
 
+Always use `pnpm run <script>` (the package.json scripts) rather than invoking tools like `tsc` or `node esbuild.config.mjs` directly. Use `pnpm` as the package manager, not `npm` or `npx`.
+
 Build output: `src/main.ts` → `main.js` (esbuild, CJS bundle). The `main.js` and `manifest.json` at repo root are the artifacts Obsidian loads.
 
 ## Testing
