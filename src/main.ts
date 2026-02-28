@@ -1,16 +1,7 @@
-import {App, Editor, MarkdownView, Plugin, PluginSettingTab, Setting, TFile} from "obsidian";
-import {
-	insertOrNavigateTimestamp as insertOrNavigateTimestampCore,
-	AppAdapter,
-} from "./editor-utils";
+import {App, MarkdownView, Plugin, PluginSettingTab, Setting, TFile} from "obsidian";
+import {insertOrNavigateTimestamp, TimestampSettings} from "./editor-utils";
 
-interface DailyTimestampSettings {
-	headingLevel: number;
-	cursorOnEmptyLine: boolean;
-	vimInsertMode: boolean;
-}
-
-const DEFAULT_SETTINGS: DailyTimestampSettings = {
+const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
@@ -33,22 +24,6 @@ function enterVimInsertMode(app: App) {
 			cancelable: true,
 		}),
 	);
-}
-
-function wrapApp(app: App): AppAdapter {
-	return {
-		isVimMode() {
-			// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- undocumented Obsidian API
-			return !!(app.vault as any).getConfig("vimMode");
-		},
-		enterVimInsertMode() {
-			enterVimInsertMode(app);
-		},
-	};
-}
-
-function insertOrNavigateTimestamp(editor: Editor, app: App, settings: DailyTimestampSettings) {
-	insertOrNavigateTimestampCore(editor, wrapApp(app), settings);
 }
 
 class DailyTimestampSettingTab extends PluginSettingTab {
@@ -110,7 +85,7 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 }
 
 export default class DailyTimestampPlugin extends Plugin {
-	settings: DailyTimestampSettings;
+	settings: TimestampSettings;
 
 	async onload() {
 		await this.loadSettings();
@@ -130,34 +105,36 @@ export default class DailyTimestampPlugin extends Plugin {
 				const dailyPath = `daily/${dateStr}.md`;
 
 				const activeFile = this.app.workspace.getActiveFile();
+				const alreadyOpen = activeFile?.path === dailyPath;
 
-				if (activeFile?.path !== dailyPath) {
+				if (!alreadyOpen) {
 					const file = this.app.vault.getAbstractFileByPath(dailyPath);
-					if (!file) return;
+					if (!(file instanceof TFile)) return;
 
 					const leaf = this.app.workspace
 						.getLeavesOfType("markdown")
-						.find((l) => (l.view as MarkdownView).file?.path === dailyPath);
+						.find((l) => l.view instanceof MarkdownView && l.view.file?.path === dailyPath);
 
 					if (leaf) {
 						this.app.workspace.setActiveLeaf(leaf, {focus: true});
 					} else {
-						if (file instanceof TFile) {
 						await this.app.workspace.getLeaf(false).openFile(file);
-					}
 					}
 				}
 
 				setTimeout(() => {
 					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-					if (view) insertOrNavigateTimestamp(view.editor, this.app, this.settings);
-				}, activeFile?.path === dailyPath ? 0 : 100);
+					if (view) {
+						const vimFn = this.settings.vimInsertMode ? () => enterVimInsertMode(this.app) : undefined;
+						insertOrNavigateTimestamp(view.editor, vimFn, this.settings, now);
+					}
+				}, alreadyOpen ? 0 : 100);
 			},
 		});
 	}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as DailyTimestampSettings | null);
+		this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData() as TimestampSettings | null);
 	}
 
 	async saveSettings() {

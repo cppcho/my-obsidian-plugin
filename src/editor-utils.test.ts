@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from "vitest";
-import {findLine, insertOrNavigateTimestamp, EditorAdapter, AppAdapter, TimestampSettings} from "./editor-utils";
+import {findLine, insertOrNavigateTimestamp, EditorAdapter, TimestampSettings} from "./editor-utils";
 
 function makeEditor(lines: string[]): EditorAdapter & {lines: string[]} {
 	const ed = {
@@ -20,13 +20,6 @@ function makeEditor(lines: string[]): EditorAdapter & {lines: string[]} {
 		setCursor: vi.fn(),
 	};
 	return ed;
-}
-
-function makeApp(vim = false): AppAdapter & {enterVimInsertMode: ReturnType<typeof vi.fn>} {
-	return {
-		isVimMode: () => vim,
-		enterVimInsertMode: vi.fn(),
-	};
 }
 
 const defaultSettings: TimestampSettings = {
@@ -62,8 +55,7 @@ describe("insertOrNavigateTimestamp", () => {
 
 	it("creates a new heading at the bottom of the file", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, defaultSettings, time);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
 
 		expect(editor.lines).toContain("### 14:30 ");
 		expect(editor.setCursor).toHaveBeenCalled();
@@ -71,8 +63,7 @@ describe("insertOrNavigateTimestamp", () => {
 
 	it("places cursor at end of heading line when cursorOnEmptyLine is false", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, cursorOnEmptyLine: false}, time);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, cursorOnEmptyLine: false}, time);
 
 		const headingIdx = editor.lines.indexOf("### 14:30 ");
 		expect(editor.setCursor).toHaveBeenCalledWith({
@@ -83,8 +74,7 @@ describe("insertOrNavigateTimestamp", () => {
 
 	it("places cursor on empty line below heading when cursorOnEmptyLine is true", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, cursorOnEmptyLine: true}, time);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, cursorOnEmptyLine: true}, time);
 
 		const headingIdx = editor.lines.indexOf("### 14:30 ");
 		expect(editor.setCursor).toHaveBeenCalledWith({
@@ -101,8 +91,7 @@ describe("insertOrNavigateTimestamp", () => {
 			"some note content",
 			"",
 		]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, defaultSettings, time);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
 
 		expect(editor.setCursor).toHaveBeenCalledWith({
 			line: 3,
@@ -116,8 +105,7 @@ describe("insertOrNavigateTimestamp", () => {
 			"",
 			"### 14:30 ",
 		]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, cursorOnEmptyLine: false}, time);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, cursorOnEmptyLine: false}, time);
 
 		expect(editor.setCursor).toHaveBeenCalledWith({
 			line: 2,
@@ -131,8 +119,7 @@ describe("insertOrNavigateTimestamp", () => {
 			"",
 			"### 14:30 ",
 		]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, cursorOnEmptyLine: true}, time);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, cursorOnEmptyLine: true}, time);
 
 		expect(editor.setCursor).toHaveBeenCalledWith({
 			line: 3,
@@ -142,36 +129,33 @@ describe("insertOrNavigateTimestamp", () => {
 
 	it("calls enterVimInsertMode when vimInsertMode is enabled", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp(true);
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, vimInsertMode: true}, time);
+		const vimFn = vi.fn();
+		insertOrNavigateTimestamp(editor, vimFn, {...defaultSettings, vimInsertMode: true}, time);
 
-		expect(app.enterVimInsertMode).toHaveBeenCalled();
+		expect(vimFn).toHaveBeenCalled();
 	});
 
 	it("does not call enterVimInsertMode when vimInsertMode is disabled", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp(true);
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, vimInsertMode: false}, time);
+		const vimFn = vi.fn();
+		insertOrNavigateTimestamp(editor, vimFn, {...defaultSettings, vimInsertMode: false}, time);
 
-		expect(app.enterVimInsertMode).not.toHaveBeenCalled();
+		expect(vimFn).not.toHaveBeenCalled();
 	});
 
 	it("adds newline before heading when last line has content", () => {
 		const editor = makeEditor(["# 2026-02-28", "some existing content"]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, defaultSettings, time);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
 
 		const headingIdx = editor.lines.indexOf("### 14:30 ");
 		expect(headingIdx).toBeGreaterThan(0);
-		// Heading should be on its own line, not appended to existing content
 		expect(editor.lines[headingIdx - 1]).toBe("some existing content");
 		expect(editor.lines[headingIdx]).toBe("### 14:30 ");
 	});
 
 	it("respects custom heading level", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, {...defaultSettings, headingLevel: 2}, time);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingLevel: 2}, time);
 
 		expect(editor.lines).toContain("## 14:30 ");
 	});
@@ -186,8 +170,7 @@ describe("insertOrNavigateTimestamp", () => {
 			"",
 			"",
 		]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, defaultSettings, time);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
 
 		expect(editor.setCursor).toHaveBeenCalledWith({
 			line: 4,
@@ -204,8 +187,63 @@ describe("insertOrNavigateTimestamp", () => {
 			"### 15:00 ",
 			"note B",
 		]);
-		const app = makeApp();
-		insertOrNavigateTimestamp(editor, app, defaultSettings, time);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
+
+		expect(editor.setCursor).toHaveBeenCalledWith({
+			line: 3,
+			ch: "note A".length,
+		});
+	});
+
+	it("creates heading correctly when file has only title (no trailing blank line)", () => {
+		const editor = makeEditor(["# 2026-02-28"]);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
+
+		expect(editor.lines).toContain("### 14:30 ");
+		// Heading should not overwrite the title line
+		expect(editor.lines[0]).toBe("# 2026-02-28");
+	});
+
+	it("creates heading correctly when file has multiple trailing blank lines", () => {
+		const editor = makeEditor(["# 2026-02-28", "", "", ""]);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
+
+		expect(editor.lines).toContain("### 14:30 ");
+		expect(editor.setCursor).toHaveBeenCalled();
+	});
+
+	it("does not call enterVimInsertMode when function is undefined", () => {
+		const editor = makeEditor(["# 2026-02-28", ""]);
+		// Should not throw when enterVimInsertMode is undefined and vimInsertMode is true
+		expect(() => {
+			insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, vimInsertMode: true}, time);
+		}).not.toThrow();
+	});
+
+	it("handles headingLevel 1 correctly", () => {
+		const editor = makeEditor(["# 2026-02-28", ""]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingLevel: 1}, time);
+
+		expect(editor.lines).toContain("# 14:30 ");
+	});
+
+	it("handles headingLevel 6 correctly", () => {
+		const editor = makeEditor(["# 2026-02-28", ""]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingLevel: 6}, time);
+
+		expect(editor.lines).toContain("###### 14:30 ");
+	});
+
+	it("stops section at higher-level heading (H2 stops at H1 or H2)", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"",
+			"## 14:30 ",
+			"note A",
+			"## 15:00 ",
+			"note B",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingLevel: 2}, time);
 
 		expect(editor.setCursor).toHaveBeenCalledWith({
 			line: 3,

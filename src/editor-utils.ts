@@ -5,11 +5,6 @@ export interface EditorAdapter {
 	setCursor(pos: {line: number; ch: number}): void;
 }
 
-export interface AppAdapter {
-	isVimMode(): boolean;
-	enterVimInsertMode(): void;
-}
-
 export interface TimestampSettings {
 	headingLevel: number;
 	cursorOnEmptyLine: boolean;
@@ -24,9 +19,21 @@ export function findLine(editor: EditorAdapter, re: RegExp, maxLine?: number): n
 	return -1;
 }
 
+function placeCursorAtHeading(editor: EditorAdapter, headingLine: number, cursorOnEmptyLine: boolean) {
+	if (cursorOnEmptyLine) {
+		const next = headingLine + 1;
+		if (next >= editor.lineCount() || editor.getLine(next).trim() !== "") {
+			editor.replaceRange("\n", {line: headingLine, ch: editor.getLine(headingLine).length});
+		}
+		editor.setCursor({line: headingLine + 1, ch: 0});
+	} else {
+		editor.setCursor({line: headingLine, ch: editor.getLine(headingLine).length});
+	}
+}
+
 export function insertOrNavigateTimestamp(
 	editor: EditorAdapter,
-	app: AppAdapter,
+	enterVimInsertMode: (() => void) | undefined,
 	settings: TimestampSettings,
 	now: Date = new Date(),
 ) {
@@ -38,9 +45,8 @@ export function insertOrNavigateTimestamp(
 	const prefix = "#".repeat(settings.headingLevel);
 	const headingRe = new RegExp(`^${prefix} ${timeStr}( |$)`);
 	let headingLine = findLine(editor, headingRe);
-	const isNew = headingLine === -1;
 
-	if (isNew) {
+	if (headingLine === -1) {
 		const lastLine = editor.lineCount() - 1;
 		const lastLineText = editor.getLine(lastLine);
 
@@ -51,20 +57,8 @@ export function insertOrNavigateTimestamp(
 		insert += `${prefix} ${timeStr} \n`;
 
 		editor.replaceRange(insert, {line: lastLine, ch: lastLineText.length});
-		headingLine = findLine(editor, headingRe);
-		if (headingLine === -1) return;
-	}
-
-	if (isNew) {
-		if (settings.cursorOnEmptyLine) {
-			const next = headingLine + 1;
-			if (next >= editor.lineCount() || editor.getLine(next).trim() !== "") {
-				editor.replaceRange("\n", {line: headingLine, ch: editor.getLine(headingLine).length});
-			}
-			editor.setCursor({line: headingLine + 1, ch: 0});
-		} else {
-			editor.setCursor({line: headingLine, ch: editor.getLine(headingLine).length});
-		}
+		headingLine = lastLineText.trim() === "" ? lastLine : lastLine + 1;
+		placeCursorAtHeading(editor, headingLine, settings.cursorOnEmptyLine);
 	} else {
 		const headingPrefix = new RegExp(`^#{1,${settings.headingLevel}} `);
 		let endLine = headingLine;
@@ -76,21 +70,13 @@ export function insertOrNavigateTimestamp(
 			endLine--;
 		}
 		if (endLine === headingLine) {
-			if (settings.cursorOnEmptyLine) {
-				const next = headingLine + 1;
-				if (next >= editor.lineCount() || editor.getLine(next).trim() !== "") {
-					editor.replaceRange("\n", {line: headingLine, ch: editor.getLine(headingLine).length});
-				}
-				editor.setCursor({line: headingLine + 1, ch: 0});
-			} else {
-				editor.setCursor({line: headingLine, ch: editor.getLine(headingLine).length});
-			}
+			placeCursorAtHeading(editor, headingLine, settings.cursorOnEmptyLine);
 		} else {
 			editor.setCursor({line: endLine, ch: editor.getLine(endLine).length});
 		}
 	}
 
-	if (settings.vimInsertMode) {
-		app.enterVimInsertMode();
+	if (settings.vimInsertMode && enterVimInsertMode) {
+		enterVimInsertMode();
 	}
 }
