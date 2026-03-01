@@ -10,12 +10,14 @@ function makeEditor(lines: string[]): EditorAdapter & {lines: string[]} {
 		getLine(n: number) {
 			return ed.lines[n] ?? "";
 		},
-		replaceRange(text: string, from: {line: number; ch: number}) {
-			const line = ed.lines[from.line] ?? "";
-			const before = line.slice(0, from.ch);
-			const after = line.slice(from.ch);
+		replaceRange(text: string, from: {line: number; ch: number}, to?: {line: number; ch: number}) {
+			const endPos = to ?? from;
+			const fromLine = ed.lines[from.line] ?? "";
+			const endLine = ed.lines[endPos.line] ?? "";
+			const before = fromLine.slice(0, from.ch);
+			const after = endLine.slice(endPos.ch);
 			const inserted = (before + text + after).split("\n");
-			ed.lines.splice(from.line, 1, ...inserted);
+			ed.lines.splice(from.line, endPos.line - from.line + 1, ...inserted);
 		},
 		setCursor: vi.fn(),
 	};
@@ -232,6 +234,37 @@ describe("insertOrNavigateTimestamp", () => {
 		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingLevel: 6}, time);
 
 		expect(editor.lines).toContain("###### 14:30 ");
+	});
+
+	it("replaces last empty timestamp heading and removes trailing blank lines", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"",
+			"",
+			"",
+		]);
+		const time0904 = new Date(2026, 1, 28, 9, 4);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time0904);
+
+		expect(editor.lines).toContain("### 09:04 ");
+		expect(editor.lines).not.toContain("### 08:59 ");
+		// Trailing blank lines should be removed
+		expect(editor.lines).toEqual(["# 2026-02-28", "### 09:04 ", ""]);
+	});
+
+	it("does not replace last timestamp heading if it has content", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"some notes here",
+			"",
+		]);
+		const time0904 = new Date(2026, 1, 28, 9, 4);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time0904);
+
+		expect(editor.lines).toContain("### 08:59 ");
+		expect(editor.lines).toContain("### 09:04 ");
 	});
 
 	it("stops section at higher-level heading (H2 stops at H1 or H2)", () => {

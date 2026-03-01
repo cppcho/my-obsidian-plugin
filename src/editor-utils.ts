@@ -1,7 +1,7 @@
 export interface EditorAdapter {
 	lineCount(): number;
 	getLine(n: number): string;
-	replaceRange(text: string, from: {line: number; ch: number}): void;
+	replaceRange(text: string, from: {line: number; ch: number}, to?: {line: number; ch: number}): void;
 	setCursor(pos: {line: number; ch: number}): void;
 }
 
@@ -47,6 +47,33 @@ export function insertOrNavigateTimestamp(
 	let headingLine = findLine(editor, headingRe);
 
 	if (headingLine === -1) {
+		// Check if the last timestamp heading has no content — if so, replace it
+		const lastHeadingRe = new RegExp(`^${prefix} \\d{2}:\\d{2}( |$)`);
+		let lastHeadingLine = -1;
+		for (let i = 0; i < editor.lineCount(); i++) {
+			if (lastHeadingRe.test(editor.getLine(i))) lastHeadingLine = i;
+		}
+
+		if (lastHeadingLine !== -1) {
+			let hasContent = false;
+			for (let j = lastHeadingLine + 1; j < editor.lineCount(); j++) {
+				if (editor.getLine(j).trim() !== "") {
+					hasContent = true;
+					break;
+				}
+			}
+			if (!hasContent) {
+				// Replace the empty heading and trailing blank lines with the new timestamp
+				const lastLine = editor.lineCount() - 1;
+				editor.replaceRange(`${prefix} ${timeStr} \n`, {line: lastHeadingLine, ch: 0}, {line: lastLine, ch: editor.getLine(lastLine).length});
+				placeCursorAtHeading(editor, lastHeadingLine, settings.cursorOnEmptyLine);
+				if (settings.vimInsertMode && enterVimInsertMode) {
+					enterVimInsertMode();
+				}
+				return;
+			}
+		}
+
 		const lastLine = editor.lineCount() - 1;
 		const lastLineText = editor.getLine(lastLine);
 
