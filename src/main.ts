@@ -1,8 +1,9 @@
-import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, moment } from "obsidian";
+import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, moment } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
 import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
+import { FRAGMENTS_FOLDER, getFragmentTargetPath } from "./move-utils";
 
 const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
@@ -109,6 +110,19 @@ export default class DailyTimestampPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new DailyTimestampSettingTab(this.app, this));
 
+		this.app.workspace.onLayoutReady(() => {
+			this.registerEvent(
+				this.app.vault.on("create", (file) => {
+					void this.moveToFragmentsIfDated(file);
+				}),
+			);
+			this.registerEvent(
+				this.app.vault.on("rename", (file) => {
+					void this.moveToFragmentsIfDated(file);
+				}),
+			);
+		});
+
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!update.selectionSet && !update.docChanged) return;
@@ -136,6 +150,18 @@ export default class DailyTimestampPlugin extends Plugin {
 				scrollDOM.scrollTop = target;
 			}),
 		);
+
+		this.addCommand({
+			id: "move-dated-files-to-fragments",
+			name: "Move dated files to fragments/",
+			callback: async () => {
+				let moved = 0;
+				for (const file of this.app.vault.getFiles()) {
+					if (await this.moveToFragmentsIfDated(file)) moved++;
+				}
+				new Notice(moved === 0 ? "No dated files to move." : `Moved ${moved} file(s) to fragments/.`);
+			},
+		});
 
 		this.addCommand({
 			id: "insert-or-navigate-timestamp",
@@ -182,5 +208,27 @@ export default class DailyTimestampPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
+	}
+
+	private async moveToFragmentsIfDated(file: TAbstractFile): Promise<boolean> {
+		if (!(file instanceof TFile)) return false;
+		const target = getFragmentTargetPath(file.path);
+		if (!target || target === file.path) return false;
+		if (this.app.vault.getAbstractFileByPath(target)) return false;
+
+		const folder = this.app.vault.getAbstractFileByPath(FRAGMENTS_FOLDER);
+		if (!folder) {
+			await this.app.vault.createFolder(FRAGMENTS_FOLDER);
+		} else if (!(folder instanceof TFolder)) {
+			return false;
+		}
+
+		try {
+			await this.app.fileManager.renameFile(file, target);
+			return true;
+		} catch (err) {
+			console.error(`Failed to move ${file.path} to ${target}`, err);
+			return false;
+		}
 	}
 }
