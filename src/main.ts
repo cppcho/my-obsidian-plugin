@@ -115,7 +115,7 @@ export default class DailyTimestampPlugin extends Plugin {
 				for (const file of this.app.vault.getFiles()) {
 					if (await this.moveToFragmentsIfDated(file)) moved++;
 				}
-				new Notice(moved === 0 ? "No dated files to move." : `Moved ${moved} file(s) to fragments/.`); // eslint-disable-line obsidianmd/ui/sentence-case
+				new Notice(moved === 0 ? "No dated files to move." : `Moved ${moved} file(s) to fragments/.`);
 			},
 		});
 
