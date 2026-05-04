@@ -97,14 +97,22 @@ export function insertOrNavigateTimestamp(
 		const lastLine = editor.lineCount() - 1;
 		const lastLineText = editor.getLine(lastLine);
 
-		let insert = "";
-		if (lastLineText.trim() !== "") {
-			insert += "\n";
+		let lastNonBlankLine = lastLine;
+		while (lastNonBlankLine >= 0 && editor.getLine(lastNonBlankLine).trim() === "") {
+			lastNonBlankLine--;
 		}
-		insert += `${prefix} ${timeStr} \n`;
 
-		editor.replaceRange(insert, {line: lastLine, ch: lastLineText.length});
-		headingLine = lastLineText.trim() === "" ? lastLine : lastLine + 1;
+		if (lastNonBlankLine < 0) {
+			editor.replaceRange(`${prefix} ${timeStr} \n`, {line: 0, ch: 0}, {line: lastLine, ch: lastLineText.length});
+			headingLine = 0;
+		} else {
+			editor.replaceRange(
+				`\n${prefix} ${timeStr} \n`,
+				{line: lastNonBlankLine, ch: editor.getLine(lastNonBlankLine).length},
+				{line: lastLine, ch: lastLineText.length},
+			);
+			headingLine = lastNonBlankLine + 1;
+		}
 		placeCursorAtHeading(editor, headingLine, settings.cursorOnEmptyLine);
 	} else {
 		const headingPrefix = new RegExp(`^#{1,${settings.headingLevel}} `);

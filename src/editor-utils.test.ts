@@ -214,6 +214,27 @@ describe("insertOrNavigateTimestamp", () => {
 		expect(editor.setCursor).toHaveBeenCalled();
 	});
 
+	it("trims trailing blank lines after content before adding new heading", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 11:57 ",
+			"some note",
+			"",
+			"",
+			"",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time);
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"### 11:57 ",
+			"some note",
+			"### 14:30 ",
+			"",
+		]);
+	});
+
 	it("does not call enterVimInsertMode when function is undefined", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
 		// Should not throw when enterVimInsertMode is undefined and vimInsertMode is true
