@@ -108,6 +108,18 @@ export default class DailyTimestampPlugin extends Plugin {
 		});
 
 		this.addCommand({
+			id: "move-dated-files-to-fragments",
+			name: "Move dated files to fragments/",
+			callback: async () => {
+				let moved = 0;
+				for (const file of this.app.vault.getFiles()) {
+					if (await this.moveToFragmentsIfDated(file)) moved++;
+				}
+				new Notice(moved === 0 ? "No dated files to move." : `Moved ${moved} file(s) to fragments/.`); // eslint-disable-line obsidianmd/ui/sentence-case
+			},
+		});
+
+		this.addCommand({
 			id: "insert-or-navigate-timestamp",
 			name: "Insert or navigate to timestamp",
 			callback: async () => {
@@ -154,23 +166,25 @@ export default class DailyTimestampPlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
-	private async moveToFragmentsIfDated(file: TAbstractFile) {
-		if (!(file instanceof TFile)) return;
+	private async moveToFragmentsIfDated(file: TAbstractFile): Promise<boolean> {
+		if (!(file instanceof TFile)) return false;
 		const target = getFragmentTargetPath(file.path);
-		if (!target || target === file.path) return;
-		if (this.app.vault.getAbstractFileByPath(target)) return;
+		if (!target || target === file.path) return false;
+		if (this.app.vault.getAbstractFileByPath(target)) return false;
 
 		const folder = this.app.vault.getAbstractFileByPath(FRAGMENTS_FOLDER);
 		if (!folder) {
 			await this.app.vault.createFolder(FRAGMENTS_FOLDER);
 		} else if (!(folder instanceof TFolder)) {
-			return;
+			return false;
 		}
 
 		try {
 			await this.app.fileManager.renameFile(file, target);
+			return true;
 		} catch (err) {
 			console.error(`Failed to move ${file.path} to ${target}`, err);
+			return false;
 		}
 	}
 }
