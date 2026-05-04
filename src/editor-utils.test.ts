@@ -1,5 +1,5 @@
 import {describe, it, expect, vi} from "vitest";
-import {findLine, insertOrNavigateTimestamp, EditorAdapter, TimestampSettings} from "./editor-utils";
+import {findLine, insertOrNavigateTimestamp, computeScrolloffScroll, EditorAdapter, TimestampSettings} from "./editor-utils";
 
 function makeEditor(lines: string[]): EditorAdapter & {lines: string[]} {
 	const ed = {
@@ -282,5 +282,93 @@ describe("insertOrNavigateTimestamp", () => {
 			line: 3,
 			ch: "note A".length,
 		});
+	});
+});
+
+// --- computeScrolloffScroll ---
+
+describe("computeScrolloffScroll", () => {
+	const lineHeight = 20;
+	const clientHeight = 400; // 20 visible lines
+
+	it("returns null when cursor sits well inside the viewport", () => {
+		// cursor at pixel 100-120, viewport 0..400 — plenty of room below
+		const target = computeScrolloffScroll({
+			cursorTop: 100,
+			cursorBottom: 120,
+			scrollTop: 0,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 5,
+		});
+		expect(target).toBeNull();
+	});
+
+	it("returns a scrollTop that pushes the cursor up by scrolloffLines when too close to bottom", () => {
+		// cursor at pixel 390-410, viewport 0..400 — cursor at the bottom edge
+		// with 5 lines (100px) of scrolloff, we want visibleBottom >= cursorBottom + 100 = 510
+		// so scrollTop should be 510 - 400 = 110
+		const target = computeScrolloffScroll({
+			cursorTop: 390,
+			cursorBottom: 410,
+			scrollTop: 0,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 5,
+		});
+		expect(target).toBe(110);
+	});
+
+	it("returns null when scrolloffLines is 0 (feature disabled)", () => {
+		const target = computeScrolloffScroll({
+			cursorTop: 390,
+			cursorBottom: 410,
+			scrollTop: 0,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 0,
+		});
+		expect(target).toBeNull();
+	});
+
+	it("returns null when cursor is above the viewport (scrolling up handled elsewhere)", () => {
+		const target = computeScrolloffScroll({
+			cursorTop: 50,
+			cursorBottom: 70,
+			scrollTop: 200,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 5,
+		});
+		expect(target).toBeNull();
+	});
+
+	it("accounts for current scrollTop when computing target", () => {
+		// viewport currently 500..900, cursor at pixel 880-900 — at the bottom edge
+		// with 3 lines (60px) of scrolloff, desired visibleBottom = 960
+		// target scrollTop = 960 - 400 = 560
+		const target = computeScrolloffScroll({
+			cursorTop: 880,
+			cursorBottom: 900,
+			scrollTop: 500,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 3,
+		});
+		expect(target).toBe(560);
+	});
+
+	it("triggers scrolloff when cursor is exactly at the visible bottom", () => {
+		// cursor bottom == visibleBottom — needs the buffer
+		const target = computeScrolloffScroll({
+			cursorTop: 380,
+			cursorBottom: 400,
+			scrollTop: 0,
+			clientHeight,
+			lineHeight,
+			scrolloffLines: 2,
+		});
+		// desired bottom = 400 + 40 = 440; target = 440 - 400 = 40
+		expect(target).toBe(40);
 	});
 });

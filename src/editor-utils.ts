@@ -9,6 +9,26 @@ export interface TimestampSettings {
 	headingLevel: number;
 	cursorOnEmptyLine: boolean;
 	vimInsertMode: boolean;
+	scrolloffLines: number;
+}
+
+export interface ScrolloffInput {
+	cursorTop: number;
+	cursorBottom: number;
+	scrollTop: number;
+	clientHeight: number;
+	lineHeight: number;
+	scrolloffLines: number;
+}
+
+export function computeScrolloffScroll(input: ScrolloffInput): number | null {
+	const {cursorBottom, scrollTop, clientHeight, lineHeight, scrolloffLines} = input;
+	if (scrolloffLines <= 0) return null;
+	const margin = scrolloffLines * lineHeight;
+	const desiredVisibleBottom = cursorBottom + margin;
+	const visibleBottom = scrollTop + clientHeight;
+	if (desiredVisibleBottom <= visibleBottom) return null;
+	return desiredVisibleBottom - clientHeight;
 }
 
 export function findLine(editor: EditorAdapter, re: RegExp, maxLine?: number): number {
