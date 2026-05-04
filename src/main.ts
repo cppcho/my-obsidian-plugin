@@ -1,6 +1,7 @@
 import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, moment } from "obsidian";
+import { EditorView } from "@codemirror/view";
 import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
-import { insertOrNavigateTimestamp, TimestampSettings } from "./editor-utils";
+import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
 import { FRAGMENTS_FOLDER, getFragmentTargetPath } from "./move-utils";
 
@@ -8,6 +9,7 @@ const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
+	scrolloffLines: 0,
 };
 
 function enterVimInsertMode(app: App) {
@@ -84,6 +86,20 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 						await this.plugin.saveSettings();
 					}),
 			);
+
+		new Setting(containerEl)
+			.setName("Bottom scrolloff lines")
+			.setDesc("Keep this many lines visible below the cursor when it nears the bottom of the editor (0 to disable)")
+			.addText((text) =>
+				text
+					.setPlaceholder("0")
+					.setValue(String(this.plugin.settings.scrolloffLines))
+					.onChange(async (value) => {
+						const parsed = parseInt(value, 10);
+						this.plugin.settings.scrolloffLines = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+						await this.plugin.saveSettings();
+					}),
+			);
 	}
 }
 
@@ -106,6 +122,34 @@ export default class DailyTimestampPlugin extends Plugin {
 				}),
 			);
 		});
+
+		this.registerEditorExtension(
+			EditorView.updateListener.of((update) => {
+				if (!update.selectionSet && !update.docChanged) return;
+				const lines = this.settings.scrolloffLines;
+				if (lines <= 0) return;
+				const view = update.view;
+				const head = update.state.selection.main.head;
+				const coords = view.coordsAtPos(head);
+				if (!coords) return;
+				const scrollDOM = view.scrollDOM;
+				const scrollTop = scrollDOM.scrollTop;
+				// coordsAtPos returns viewport-relative pixels; convert to document-relative.
+				const rect = scrollDOM.getBoundingClientRect();
+				const cursorTop = coords.top - rect.top + scrollTop;
+				const cursorBottom = coords.bottom - rect.top + scrollTop;
+				const target = computeScrolloffScroll({
+					cursorTop,
+					cursorBottom,
+					scrollTop,
+					clientHeight: scrollDOM.clientHeight,
+					lineHeight: view.defaultLineHeight,
+					scrolloffLines: lines,
+				});
+				if (target === null) return;
+				scrollDOM.scrollTop = target;
+			}),
+		);
 
 		this.addCommand({
 			id: "move-dated-files-to-fragments",
