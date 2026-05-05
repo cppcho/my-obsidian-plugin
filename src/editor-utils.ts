@@ -10,6 +10,7 @@ export interface TimestampSettings {
 	cursorOnEmptyLine: boolean;
 	vimInsertMode: boolean;
 	scrolloffLines: number;
+	showLinkedContent: boolean;
 }
 
 export interface ScrolloffInput {

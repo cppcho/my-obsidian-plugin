@@ -34,19 +34,27 @@ Core editor logic in `src/editor-utils.ts` is tested via adapter interfaces (`Ed
 
 ## Architecture
 
-Two source files:
-
-- **`src/main.ts`** (~140 lines) — Obsidian plugin glue. Registers the command, manages settings, handles file navigation, and provides the vim insert mode function.
-  - `DailyTimestampPlugin.onload()` — loads settings, registers the settings tab and command.
-  - `DailyTimestampSettingTab` — settings UI (heading level, cursor placement, vim insert mode).
+- **`src/main.ts`** — Obsidian plugin glue. Registers the timestamp command, manages settings, handles file navigation, and wires up the linked-content reading-view post processor.
+  - `DailyTimestampPlugin.onload()` — loads settings, registers the settings tab, command, markdown post processor, and metadata-cache change listener.
+  - `DailyTimestampSettingTab` — settings UI.
   - `enterVimInsertMode()` — dispatches a keydown event to enter vim insert mode via undocumented Obsidian APIs.
+  - `injectLinkedContent()` / `collectLinkedSections()` — appends a `.my-plugin-linked-notes` wrapper to each reading-view render that contains foldable backlink sections.
+  - `handleMetadataChange()` — re-renders open reading-view leaves whose file is targeted by a heading-line link in the changed source.
 
-- **`src/editor-utils.ts`** (~80 lines) — Pure editor logic, framework-independent.
+- **`src/editor-utils.ts`** — Pure editor logic, framework-independent.
   - `insertOrNavigateTimestamp()` — finds or inserts a timestamp heading at the end of the file, positions cursor appropriately.
   - `placeCursorAtHeading()` — shared helper for cursor placement (on heading or empty line below).
   - `findLine()` — regex line search utility.
 
-Settings (`TimestampSettings`): heading level (H1–H6), cursor on empty line below heading, vim insert mode toggle.
+- **`src/linked-content.ts`** — Pure logic for the linked-content feature.
+  - `findHeadingLinkedSections(targetPath, sources)` — emits one section per source heading whose line contains a backlink to the target file (deduped per heading, self-links skipped).
+  - `extractHeadingSection(content, headings, idx)` — slices the source content under a heading, stopping at the next equal-or-lower-level heading; trailing blanks trimmed.
+
+- **`src/linked-content-render.ts`** — DOM rendering for the linked-content feature; takes `MarkdownRenderer.render` as a dependency for testability.
+  - `renderLinkedSections(container, items, render)` — builds an open `<details>` per source-heading section.
+  - `foldSubheadings(rootEl)` — wraps each `h1..h6` plus following content into a closed nested `<details>` so subheadings start folded.
+
+Settings (`TimestampSettings`): heading level (H1–H6), cursor on empty line below heading, vim insert mode toggle, show heading-linked content in reading view.
 
 Daily note conventions: files live at `daily/{YYYY-MM-DD}.md`, first line is `# YYYY-MM-DD`, timestamp headings are appended at the end of the file.
 

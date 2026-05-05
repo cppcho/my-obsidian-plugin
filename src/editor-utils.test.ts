@@ -28,6 +28,8 @@ const defaultSettings: TimestampSettings = {
 	headingLevel: 3,
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
+	scrolloffLines: 0,
+	showLinkedContent: true,
 };
 
 // --- findLine ---

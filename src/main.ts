@@ -1,16 +1,21 @@
-import { App, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, moment } from "obsidian";
+import { App, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, moment } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
 import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
 import { FRAGMENTS_FOLDER, getFragmentTargetPath } from "./move-utils";
+import { findHeadingLinkedSections, HeadingInfo, LinkedSection, SourceFileInfo } from "./linked-content";
+import { renderLinkedSections } from "./linked-content-render";
 
 const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
 	scrolloffLines: 0,
+	showLinkedContent: true,
 };
+
+const LINKED_NOTES_CLASS = "my-plugin-linked-notes";
 
 function enterVimInsertMode(app: App) {
 	// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-explicit-any, @typescript-eslint/no-unsafe-member-access -- undocumented Obsidian API
@@ -97,6 +102,18 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						const parsed = parseInt(value, 10);
 						this.plugin.settings.scrolloffLines = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("Show heading-linked content in reading view")
+			.setDesc("Append a list of source notes whose heading line contains a link to the current file")
+			.addToggle((toggle) =>
+				toggle
+					.setValue(this.plugin.settings.showLinkedContent)
+					.onChange(async (value) => {
+						this.plugin.settings.showLinkedContent = value;
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -200,6 +217,12 @@ export default class DailyTimestampPlugin extends Plugin {
 				}, alreadyOpen ? 0 : 100);
 			},
 		});
+
+		this.registerMarkdownPostProcessor((el, ctx) => this.injectLinkedContent(el, ctx));
+
+		this.registerEvent(
+			this.app.metadataCache.on("changed", (changedFile) => this.handleMetadataChange(changedFile)),
+		);
 	}
 
 	async loadSettings() {
@@ -231,4 +254,100 @@ export default class DailyTimestampPlugin extends Plugin {
 			return false;
 		}
 	}
+
+	private async injectLinkedContent(el: HTMLElement, ctx: MarkdownPostProcessorContext): Promise<void> {
+		if (!this.settings.showLinkedContent) return;
+		// Skip embeds and hover popovers — only run inside the top-level reading view.
+		if (el.closest(".markdown-embed") || el.closest(".popover")) return;
+
+		const previewSection = el.closest(".markdown-preview-section");
+		if (!previewSection) return;
+
+		const targetFile = this.app.vault.getFileByPath(ctx.sourcePath);
+		if (!targetFile) return;
+
+		const existing = previewSection.querySelector(`:scope > .${LINKED_NOTES_CLASS}`);
+		if (existing) {
+			previewSection.appendChild(existing);
+			return;
+		}
+
+		const items = await this.collectLinkedSections(targetFile);
+		if (items.length === 0) return;
+
+		const wrapper = previewSection.ownerDocument.createElement("div");
+		wrapper.className = LINKED_NOTES_CLASS;
+		previewSection.appendChild(wrapper);
+
+		const child = new MarkdownRenderChild(wrapper);
+		ctx.addChild(child);
+
+		await renderLinkedSections(wrapper, items, async (md, target) => {
+			await MarkdownRenderer.render(this.app, md, target, ctx.sourcePath, child);
+		});
+	}
+
+	private async collectLinkedSections(targetFile: TFile): Promise<LinkedSection[]> {
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-explicit-any -- getBacklinksForFile is undocumented
+		const backlinks = (this.app.metadataCache as any).getBacklinksForFile?.(targetFile) as { data?: Map<string, BacklinkRefRaw[]> | Record<string, BacklinkRefRaw[]> } | undefined;
+		if (!backlinks?.data) return [];
+
+		const entries: Array<[string, BacklinkRefRaw[]]> = backlinks.data instanceof Map
+			? Array.from(backlinks.data.entries())
+			: Object.entries(backlinks.data);
+
+		const sources: SourceFileInfo[] = [];
+		for (const [sourcePath, refs] of entries) {
+			if (!refs || refs.length === 0) continue;
+			const sourceFile = this.app.vault.getFileByPath(sourcePath);
+			if (!sourceFile) continue;
+			const fileCache = this.app.metadataCache.getFileCache(sourceFile);
+			if (!fileCache?.headings || fileCache.headings.length === 0) continue;
+			const headings: HeadingInfo[] = fileCache.headings.map((h) => ({
+				heading: h.heading,
+				level: h.level,
+				line: h.position.start.line,
+			}));
+			const content = await this.app.vault.cachedRead(sourceFile);
+			sources.push({
+				path: sourcePath,
+				basename: sourceFile.basename,
+				content,
+				headings,
+				refs: refs.map((r) => ({ position: { start: { line: r.position.start.line } } })),
+			});
+		}
+
+		return findHeadingLinkedSections(targetFile.path, sources);
+	}
+
+	private handleMetadataChange(changedFile: TFile): void {
+		if (!this.settings.showLinkedContent) return;
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (!(leaf.view instanceof MarkdownView)) continue;
+			if (leaf.view.getMode() !== "preview") continue;
+			const file = leaf.view.file;
+			if (!file || file.path === changedFile.path) continue;
+			if (this.hasHeadingLinkTo(changedFile, file.path)) {
+				leaf.view.previewMode.rerender(true);
+			}
+		}
+	}
+
+	private hasHeadingLinkTo(source: TFile, targetPath: string): boolean {
+		const cache = this.app.metadataCache.getFileCache(source);
+		if (!cache?.links || !cache.headings) return false;
+		const headingLines = new Set(cache.headings.map((h) => h.position.start.line));
+		for (const link of cache.links) {
+			if (!headingLines.has(link.position.start.line)) continue;
+			const linktext = link.link.split("#")[0]?.split("|")[0] ?? "";
+			const dest = this.app.metadataCache.getFirstLinkpathDest(linktext, source.path);
+			if (dest?.path === targetPath) return true;
+		}
+		return false;
+	}
+}
+
+interface BacklinkRefRaw {
+	position: { start: { line: number } };
 }
