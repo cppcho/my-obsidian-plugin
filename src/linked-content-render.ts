@@ -14,19 +14,54 @@ export async function renderLinkedSections(
 ): Promise<void> {
 	if (items.length === 0) return;
 	const doc = container.ownerDocument;
+	// Native class lets community themes style the panel like the side-pane backlinks.
+	container.classList.add("search-result-container");
+
+	const header = doc.createElement("div");
+	header.className = "my-plugin-linked-notes-header";
+	const title = doc.createElement("span");
+	title.className = "my-plugin-linked-notes-title";
+	title.textContent = "Heading-linked mentions";
+	const count = doc.createElement("span");
+	count.className = "my-plugin-linked-notes-count tree-item-flair";
+	count.textContent = String(items.length);
+	header.appendChild(title);
+	header.appendChild(count);
+	container.appendChild(header);
+
 	for (const item of items) {
 		const details = doc.createElement("details");
+		details.className = "tree-item";
 		details.open = true;
 		const summary = doc.createElement("summary");
-		summary.textContent = `${item.sourceBasename} > ${item.headingText}`;
+		summary.className = "tree-item-self is-clickable";
+		const source = doc.createElement("span");
+		source.className = "my-plugin-linked-notes-source";
+		source.textContent = `${item.sourceBasename} > `;
+		const heading = doc.createElement("span");
+		heading.className = "my-plugin-linked-notes-heading";
+		await renderInline(heading, item.headingText, render);
+		summary.appendChild(source);
+		summary.appendChild(heading);
 		details.appendChild(summary);
 		const body = doc.createElement("div");
-		body.className = "linked-content-body";
+		body.className = "linked-content-body tree-item-children";
 		details.appendChild(body);
 		await render(item.sectionMarkdown, body);
 		foldSubheadings(body);
 		container.appendChild(details);
 	}
+}
+
+async function renderInline(target: HTMLElement, markdown: string, render: RenderFn): Promise<void> {
+	const doc = target.ownerDocument;
+	const scratch = doc.createElement("div");
+	await render(markdown, scratch);
+	// MarkdownRenderer.render wraps content in a single <p>; unwrap it so the
+	// rendered links sit inline inside the parent <summary>.
+	const only = scratch.children.length === 1 ? scratch.firstElementChild : null;
+	const source = only && only.tagName === "P" ? only : scratch;
+	while (source.firstChild) target.appendChild(source.firstChild);
 }
 
 function headingLevel(el: Element): number {

@@ -241,8 +241,12 @@ export default class DailyTimestampPlugin extends Plugin {
 		if (!file) return;
 
 		const isPreview = view.getMode() === "preview";
+		// Reading mode: attach to `.markdown-preview-view` (the scroll container),
+		// NOT to its child `.markdown-preview-section`. The section is virtualized —
+		// blocks inside get unmounted on scroll, which would yank our wrapper.
+		// The native "Backlinks in document" panel sits at this same level.
 		const host = isPreview
-			? (view.containerEl.querySelector(".markdown-preview-view .markdown-preview-section") as HTMLElement | null)
+			? (view.containerEl.querySelector(".markdown-preview-view") as HTMLElement | null)
 			: (view.containerEl.querySelector(".markdown-source-view .cm-sizer") as HTMLElement | null);
 		if (!host) return;
 
@@ -263,10 +267,10 @@ export default class DailyTimestampPlugin extends Plugin {
 		wrapper.className = LINKED_NOTES_CLASS;
 		wrapper.dataset.targetPath = file.path;
 		if (isPreview) {
-			// Insert before the reading-mode footer; Obsidian re-asserts the footer
-			// as the last child, so appending after it gets yanked.
-			const footer = host.querySelector(":scope > .mod-footer");
-			if (footer) host.insertBefore(wrapper, footer);
+			// Insert before any native sibling (mod-footer, embedded backlinks panel)
+			// that Obsidian keeps as trailing children of `.markdown-preview-view`.
+			const trailing = host.querySelector(":scope > .mod-footer, :scope > .embedded-backlinks");
+			if (trailing) host.insertBefore(wrapper, trailing);
 			else host.appendChild(wrapper);
 		} else {
 			host.appendChild(wrapper);

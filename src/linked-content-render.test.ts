@@ -29,7 +29,7 @@ describe("renderLinkedSections", () => {
 			{
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
-				headingText: "09:30 [[topics/React]]",
+				headingText: "09:30 plain text",
 				sectionMarkdown: "content X",
 			},
 		];
@@ -37,13 +37,107 @@ describe("renderLinkedSections", () => {
 
 		const details = container.querySelectorAll("details");
 		expect(details).toHaveLength(1);
-		expect(details[0]?.querySelector("summary")?.textContent).toBe("2026-05-04 > 09:30 [[topics/React]]");
+		expect(details[0]?.querySelector("summary")?.textContent).toContain("2026-05-04");
+		expect(details[0]?.querySelector("summary")?.textContent).toContain("09:30 plain text");
+	});
+
+	it("renders wikilinks in the heading text instead of showing raw [[…]] syntax", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30 [[topics/React]]",
+				sectionMarkdown: "content X",
+			},
+		];
+		// Stub renderer that turns [[X]] into <a class="internal-link">X</a>.
+		const render = vi.fn(async (markdown: string, el: HTMLElement) => {
+			const html = markdown.replace(/\[\[([^\]]+)\]\]/g, (_m, inner: string) => {
+				const text = String(inner).split("|").pop() ?? inner;
+				return `<a class="internal-link" href="${inner}">${text}</a>`;
+			});
+			const p = el.ownerDocument.createElement("p");
+			p.innerHTML = html;
+			el.appendChild(p);
+		});
+		await renderLinkedSections(container, items, render);
+
+		const summary = container.querySelector("details > summary");
+		expect(summary).not.toBeNull();
+		expect(summary?.textContent ?? "").not.toContain("[[");
+		expect(summary?.textContent ?? "").not.toContain("]]");
+		expect(summary?.querySelector("a.internal-link")?.textContent).toBe("topics/React");
 	});
 
 	it("emits no children when items is empty", async () => {
 		const container = document.createElement("div");
 		await renderLinkedSections(container, [], fakeRender());
 		expect(container.children).toHaveLength(0);
+	});
+
+	it("emits a header with title and count when items are present", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30",
+				sectionMarkdown: "a",
+			},
+			{
+				sourcePath: "daily/2026-05-05.md",
+				sourceBasename: "2026-05-05",
+				headingText: "10:00",
+				sectionMarkdown: "b",
+			},
+		];
+		await renderLinkedSections(container, items, fakeRender());
+
+		const header = container.querySelector(":scope > .my-plugin-linked-notes-header");
+		expect(header).not.toBeNull();
+		expect(header?.querySelector(".my-plugin-linked-notes-title")?.textContent).toBe(
+			"Heading-linked mentions",
+		);
+		expect(header?.querySelector(".my-plugin-linked-notes-count")?.textContent).toBe("2");
+	});
+
+	it("applies native theming class names so themes style the panel like the side-pane backlinks", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30",
+				sectionMarkdown: "a",
+			},
+		];
+		await renderLinkedSections(container, items, fakeRender());
+
+		expect(container.classList.contains("search-result-container")).toBe(true);
+		expect(container.querySelector(".my-plugin-linked-notes-count")?.classList.contains("tree-item-flair")).toBe(true);
+		const details = container.querySelector("details");
+		expect(details?.classList.contains("tree-item")).toBe(true);
+		const summary = details?.querySelector("summary");
+		expect(summary?.classList.contains("tree-item-self")).toBe(true);
+		expect(summary?.classList.contains("is-clickable")).toBe(true);
+		expect(details?.querySelector(".linked-content-body")?.classList.contains("tree-item-children")).toBe(true);
+	});
+
+	it("places the header before the section <details>", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30",
+				sectionMarkdown: "a",
+			},
+		];
+		await renderLinkedSections(container, items, fakeRender());
+
+		const first = container.firstElementChild;
+		expect(first?.classList.contains("my-plugin-linked-notes-header")).toBe(true);
 	});
 
 	it("renders the section markdown body inside each details", async () => {

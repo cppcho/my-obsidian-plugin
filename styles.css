@@ -1,16 +1,26 @@
 .my-plugin-linked-notes {
-	margin-top: 2em;
-	padding-top: 0.75em;
+	margin-top: var(--size-4-8, 2em);
+	padding-top: var(--size-4-3, 0.75em);
 	border-top: 1px solid var(--background-modifier-border);
 }
 
-.my-plugin-linked-notes::before {
-	content: "Heading-linked mentions";
-	display: block;
-	font-size: var(--nav-item-size, 0.85em);
-	font-weight: var(--font-bold, 600);
+.my-plugin-linked-notes-header {
+	display: flex;
+	align-items: center;
+	gap: var(--size-4-2, 0.5em);
+	margin-bottom: var(--size-4-2, 0.5em);
+	font-size: var(--font-ui-small, 0.85em);
 	color: var(--text-muted);
-	margin-bottom: 0.5em;
+}
+
+.my-plugin-linked-notes-title {
+	font-weight: var(--font-bold, 600);
+}
+
+/* Stack on top of native .tree-item-flair: theme provides muted-pill look, we
+   only enforce tabular digit width so the count doesn't reflow. */
+.my-plugin-linked-notes-count {
+	font-variant-numeric: tabular-nums;
 }
 
 .my-plugin-linked-notes details {
@@ -18,7 +28,6 @@
 }
 
 .my-plugin-linked-notes summary {
-	cursor: pointer;
 	padding: 0.15em 0;
 }
 
