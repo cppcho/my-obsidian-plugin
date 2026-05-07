@@ -127,19 +127,6 @@ export default class DailyTimestampPlugin extends Plugin {
 		await this.loadSettings();
 		this.addSettingTab(new DailyTimestampSettingTab(this.app, this));
 
-		this.app.workspace.onLayoutReady(() => {
-			this.registerEvent(
-				this.app.vault.on("create", (file) => {
-					void this.moveToFragmentsIfDated(file);
-				}),
-			);
-			this.registerEvent(
-				this.app.vault.on("rename", (file) => {
-					void this.moveToFragmentsIfDated(file);
-				}),
-			);
-		});
-
 		this.registerEditorExtension(
 			EditorView.updateListener.of((update) => {
 				if (!update.selectionSet && !update.docChanged) return;
