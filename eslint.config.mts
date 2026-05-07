@@ -31,5 +31,7 @@ export default tseslint.config(
 		"versions.json",
 		"main.js",
 		"src/**/*.test.ts",
+		"tests/e2e/**",
+		"playwright.config.ts",
 	]),
 );
