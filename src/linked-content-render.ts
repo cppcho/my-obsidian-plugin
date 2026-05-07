@@ -56,16 +56,18 @@ export function foldSubheadings(root: HTMLElement): void {
 
 		const details = doc.createElement("details");
 		const summary = doc.createElement("summary");
-		summary.textContent = child.textContent ?? "";
-		details.appendChild(summary);
 		const body = doc.createElement("div");
 		body.className = "linked-content-body";
 		for (let j = i + 1; j < end; j++) {
 			const sib = children[j];
 			if (sib) body.appendChild(sib);
 		}
+		// Slot the details into the heading's place, then move the heading
+		// element itself into the summary so its h1/h2/... styling carries over.
+		root.insertBefore(details, child);
+		summary.appendChild(child);
+		details.appendChild(summary);
 		details.appendChild(body);
-		root.replaceChild(details, child);
 
 		foldSubheadings(body);
 		i = end;

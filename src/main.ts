@@ -223,6 +223,94 @@ export default class DailyTimestampPlugin extends Plugin {
 		this.registerEvent(
 			this.app.metadataCache.on("changed", (changedFile) => this.handleMetadataChange(changedFile)),
 		);
+
+		this.registerEvent(this.app.workspace.on("file-open", () => this.refreshAllLinkedContent()));
+		this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.refreshAllLinkedContent()));
+		this.registerEvent(this.app.workspace.on("layout-change", () => this.refreshAllLinkedContent()));
+		// On cold startup the metadata cache may not be populated yet; refresh once it resolves.
+		this.registerEvent(
+			this.app.metadataCache.on("resolved", () => {
+				if (this.cacheResolvedOnce) return;
+				this.cacheResolvedOnce = true;
+				this.refreshAllLinkedContent();
+			}),
+		);
+		this.app.workspace.onLayoutReady(() => this.refreshAllLinkedContent());
+	}
+
+	private cacheResolvedOnce = false;
+	private viewChildren = new WeakMap<MarkdownView, MarkdownRenderChild>();
+
+	private refreshAllLinkedContent(force = false): void {
+		if (!this.settings.showLinkedContent) return;
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (!(leaf.view instanceof MarkdownView)) continue;
+			void this.injectLinkedContentForView(leaf.view, force);
+		}
+	}
+
+	private async injectLinkedContentForView(view: MarkdownView, force = false): Promise<void> {
+		const file = view.file;
+		if (!file) return;
+
+		const isPreview = view.getMode() === "preview";
+		const host = isPreview
+			? (view.containerEl.querySelector(".markdown-preview-view .markdown-preview-section") as HTMLElement | null)
+			: (view.containerEl.querySelector(".markdown-source-view .cm-sizer") as HTMLElement | null);
+		if (!host) return;
+
+		const existing = host.querySelector(`:scope > .${LINKED_NOTES_CLASS}`) as HTMLElement | null;
+		if (existing) {
+			if (!force && existing.dataset.targetPath === file.path) return;
+			const prev = this.viewChildren.get(view);
+			if (prev) {
+				view.removeChild(prev);
+				this.viewChildren.delete(view);
+			}
+			existing.remove();
+		}
+
+		// Claim the wrapper slot synchronously before any await so concurrent
+		// invocations see the existing wrapper and skip.
+		const wrapper = host.ownerDocument.createElement("div");
+		wrapper.className = LINKED_NOTES_CLASS;
+		wrapper.dataset.targetPath = file.path;
+		if (isPreview) {
+			// Insert before the reading-mode footer; Obsidian re-asserts the footer
+			// as the last child, so appending after it gets yanked.
+			const footer = host.querySelector(":scope > .mod-footer");
+			if (footer) host.insertBefore(wrapper, footer);
+			else host.appendChild(wrapper);
+		} else {
+			host.appendChild(wrapper);
+		}
+
+		const items = await this.collectLinkedSections(file);
+		if (!wrapper.isConnected) return;
+		if (items.length === 0) {
+			wrapper.remove();
+			return;
+		}
+
+		const child = new MarkdownRenderChild(wrapper);
+		view.addChild(child);
+		this.viewChildren.set(view, child);
+
+		await renderLinkedSections(wrapper, items, async (md, target) => {
+			await MarkdownRenderer.render(this.app, md, target, file.path, child);
+		});
+	}
+
+	private findViewForPath(path: string, mode: "preview" | "source"): MarkdownView | null {
+		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+			if (!(leaf.view instanceof MarkdownView)) continue;
+			if (leaf.view.file?.path !== path) continue;
+			const isPreview = leaf.view.getMode() === "preview";
+			if (mode === "preview" && !isPreview) continue;
+			if (mode === "source" && isPreview) continue;
+			return leaf.view;
+		}
+		return null;
 	}
 
 	async loadSettings() {
@@ -255,36 +343,20 @@ export default class DailyTimestampPlugin extends Plugin {
 		}
 	}
 
-	private async injectLinkedContent(el: HTMLElement, ctx: MarkdownPostProcessorContext): Promise<void> {
+	private injectLinkedContent(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {
 		if (!this.settings.showLinkedContent) return;
 		// Skip embeds and hover popovers — only run inside the top-level reading view.
 		if (el.closest(".markdown-embed") || el.closest(".popover")) return;
+		// Skip content rendered inside our own wrapper (MarkdownRenderer.render fans out
+		// the post-processor recursively for the section bodies we render).
+		if (el.closest(`.${LINKED_NOTES_CLASS}`)) return;
 
-		const previewSection = el.closest(".markdown-preview-section");
-		if (!previewSection) return;
-
-		const targetFile = this.app.vault.getFileByPath(ctx.sourcePath);
-		if (!targetFile) return;
-
-		const existing = previewSection.querySelector(`:scope > .${LINKED_NOTES_CLASS}`);
-		if (existing) {
-			previewSection.appendChild(existing);
-			return;
-		}
-
-		const items = await this.collectLinkedSections(targetFile);
-		if (items.length === 0) return;
-
-		const wrapper = previewSection.ownerDocument.createElement("div");
-		wrapper.className = LINKED_NOTES_CLASS;
-		previewSection.appendChild(wrapper);
-
-		const child = new MarkdownRenderChild(wrapper);
-		ctx.addChild(child);
-
-		await renderLinkedSections(wrapper, items, async (md, target) => {
-			await MarkdownRenderer.render(this.app, md, target, ctx.sourcePath, child);
-		});
+		// The post-processor runs before `el` is attached to the document. Defer to
+		// the next tick so we can find the matching MarkdownView and inject.
+		setTimeout(() => {
+			const view = this.findViewForPath(ctx.sourcePath, "preview");
+			if (view) void this.injectLinkedContentForView(view);
+		}, 0);
 	}
 
 	private async collectLinkedSections(targetFile: TFile): Promise<LinkedSection[]> {
@@ -325,12 +397,10 @@ export default class DailyTimestampPlugin extends Plugin {
 		if (!this.settings.showLinkedContent) return;
 		for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
 			if (!(leaf.view instanceof MarkdownView)) continue;
-			if (leaf.view.getMode() !== "preview") continue;
 			const file = leaf.view.file;
 			if (!file || file.path === changedFile.path) continue;
-			if (this.hasHeadingLinkTo(changedFile, file.path)) {
-				leaf.view.previewMode.rerender(true);
-			}
+			if (!this.hasHeadingLinkTo(changedFile, file.path)) continue;
+			void this.injectLinkedContentForView(leaf.view, true);
 		}
 	}
 

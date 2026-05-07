@@ -104,6 +104,20 @@ describe("foldSubheadings", () => {
 		expect(root.querySelector("p")?.textContent).toBe("only paragraph");
 	});
 
+	it("preserves the original heading element inside the summary", () => {
+		const root = document.createElement("div");
+		root.innerHTML = `<h2>sub two</h2><p>body</p><h4>deeper</h4><p>more</p>`;
+		foldSubheadings(root);
+
+		const outer = root.querySelector(":scope > details > summary");
+		expect(outer?.querySelector("h2")).not.toBeNull();
+		expect(outer?.querySelector("h2")?.textContent).toBe("sub two");
+
+		const inner = root.querySelector(":scope > details > .linked-content-body > details > summary");
+		expect(inner?.querySelector("h4")).not.toBeNull();
+		expect(inner?.querySelector("h4")?.textContent).toBe("deeper");
+	});
+
 	it("nests deeper headings inside their parent fold", () => {
 		const root = document.createElement("div");
 		root.innerHTML = `

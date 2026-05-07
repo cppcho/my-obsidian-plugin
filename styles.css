@@ -1,8 +1,43 @@
-/*
+.my-plugin-linked-notes {
+	margin-top: 2em;
+	padding-top: 0.75em;
+	border-top: 1px solid var(--background-modifier-border);
+}
 
-This CSS file will be included with your plugin, and
-available in the app when your plugin is enabled.
+.my-plugin-linked-notes::before {
+	content: "Heading-linked mentions";
+	display: block;
+	font-size: var(--nav-item-size, 0.85em);
+	font-weight: var(--font-bold, 600);
+	color: var(--text-muted);
+	margin-bottom: 0.5em;
+}
 
-If your plugin does not need CSS, delete this file.
+.my-plugin-linked-notes details {
+	margin: 0.4em 0;
+}
 
-*/
+.my-plugin-linked-notes summary {
+	cursor: pointer;
+	padding: 0.15em 0;
+}
+
+/* Keep heading-level styling (size/weight) but flush margins so the
+   disclosure marker stays aligned with the heading text. */
+.my-plugin-linked-notes summary > h1,
+.my-plugin-linked-notes summary > h2,
+.my-plugin-linked-notes summary > h3,
+.my-plugin-linked-notes summary > h4,
+.my-plugin-linked-notes summary > h5,
+.my-plugin-linked-notes summary > h6 {
+	display: inline-block;
+	margin: 0;
+	padding: 0;
+	vertical-align: middle;
+}
+
+.my-plugin-linked-notes .linked-content-body {
+	padding-left: 1em;
+	border-left: 2px solid var(--background-modifier-border);
+	margin-left: 0.25em;
+}
