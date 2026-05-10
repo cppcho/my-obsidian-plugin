@@ -1,9 +1,8 @@
-import { App, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TAbstractFile, TFile, TFolder, moment } from "obsidian";
+import { App, Keymap, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, moment } from "obsidian";
 import { EditorView } from "@codemirror/view";
 import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
 import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
-import { FRAGMENTS_FOLDER, getFragmentTargetPath } from "./move-utils";
 import { findHeadingLinkedSections, HeadingInfo, LinkedSection, SourceFileInfo } from "./linked-content";
 import { renderLinkedSections } from "./linked-content-render";
 
@@ -156,18 +155,6 @@ export default class DailyTimestampPlugin extends Plugin {
 		);
 
 		this.addCommand({
-			id: "move-dated-files-to-fragments",
-			name: "Move dated files to fragments/",
-			callback: async () => {
-				let moved = 0;
-				for (const file of this.app.vault.getFiles()) {
-					if (await this.moveToFragmentsIfDated(file)) moved++;
-				}
-				new Notice(moved === 0 ? "No dated files to move." : `Moved ${moved} file(s) to fragments/.`);
-			},
-		});
-
-		this.addCommand({
 			id: "insert-or-navigate-timestamp",
 			name: "Insert or navigate to timestamp",
 			callback: async () => {
@@ -287,9 +274,24 @@ export default class DailyTimestampPlugin extends Plugin {
 		view.addChild(child);
 		this.viewChildren.set(view, child);
 
-		await renderLinkedSections(wrapper, items, async (md, target) => {
-			await MarkdownRenderer.render(this.app, md, target, file.path, child);
-		});
+		await renderLinkedSections(
+			wrapper,
+			items,
+			async (md, target) => {
+				await MarkdownRenderer.render(this.app, md, target, file.path, child);
+			},
+			(sourcePath, headingLine, ev) => {
+				void this.openSourceAtLine(sourcePath, headingLine, ev);
+			},
+		);
+	}
+
+	private async openSourceAtLine(sourcePath: string, headingLine: number, ev: MouseEvent): Promise<void> {
+		const file = this.app.vault.getFileByPath(sourcePath);
+		if (!file) return;
+		const newLeaf = Keymap.isModEvent(ev);
+		const leaf = this.app.workspace.getLeaf(newLeaf);
+		await leaf.openFile(file, { eState: { line: headingLine }, active: true });
 	}
 
 	private findViewForPath(path: string, mode: "preview" | "source"): MarkdownView | null {
@@ -310,28 +312,6 @@ export default class DailyTimestampPlugin extends Plugin {
 
 	async saveSettings() {
 		await this.saveData(this.settings);
-	}
-
-	private async moveToFragmentsIfDated(file: TAbstractFile): Promise<boolean> {
-		if (!(file instanceof TFile)) return false;
-		const target = getFragmentTargetPath(file.path);
-		if (!target || target === file.path) return false;
-		if (this.app.vault.getAbstractFileByPath(target)) return false;
-
-		const folder = this.app.vault.getAbstractFileByPath(FRAGMENTS_FOLDER);
-		if (!folder) {
-			await this.app.vault.createFolder(FRAGMENTS_FOLDER);
-		} else if (!(folder instanceof TFolder)) {
-			return false;
-		}
-
-		try {
-			await this.app.fileManager.renameFile(file, target);
-			return true;
-		} catch (err) {
-			console.error(`Failed to move ${file.path} to ${target}`, err);
-			return false;
-		}
 	}
 
 	private injectLinkedContent(el: HTMLElement, ctx: MarkdownPostProcessorContext): void {

@@ -30,6 +30,7 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30 plain text",
+				headingLine: 0,
 				sectionMarkdown: "content X",
 			},
 		];
@@ -48,6 +49,7 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30 [[topics/React]]",
+				headingLine: 0,
 				sectionMarkdown: "content X",
 			},
 		];
@@ -83,12 +85,14 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30",
+				headingLine: 0,
 				sectionMarkdown: "a",
 			},
 			{
 				sourcePath: "daily/2026-05-05.md",
 				sourceBasename: "2026-05-05",
 				headingText: "10:00",
+				headingLine: 0,
 				sectionMarkdown: "b",
 			},
 		];
@@ -109,6 +113,7 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30",
+				headingLine: 0,
 				sectionMarkdown: "a",
 			},
 		];
@@ -131,6 +136,7 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30",
+				headingLine: 0,
 				sectionMarkdown: "a",
 			},
 		];
@@ -147,6 +153,7 @@ describe("renderLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30",
+				headingLine: 0,
 				sectionMarkdown: "hello world",
 			},
 		];
@@ -155,6 +162,49 @@ describe("renderLinkedSections", () => {
 		const body = container.querySelector("details > .linked-content-body");
 		expect(body).not.toBeNull();
 		expect(body?.querySelector("p")?.textContent).toBe("hello world");
+	});
+
+	it("renders the source basename as a clickable element that invokes onJump", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30",
+				headingLine: 7,
+				sectionMarkdown: "x",
+			},
+		];
+		const onJump = vi.fn();
+		await renderLinkedSections(container, items, fakeRender(), onJump);
+
+		const link = container.querySelector("details > summary a.my-plugin-linked-notes-source");
+		expect(link).not.toBeNull();
+		expect(link?.textContent).toContain("2026-05-04");
+
+		const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+		link?.dispatchEvent(event);
+		expect(onJump).toHaveBeenCalledWith("daily/2026-05-04.md", 7, expect.any(MouseEvent));
+	});
+
+	it("does not toggle the parent <details> when the basename link is clicked", async () => {
+		const container = document.createElement("div");
+		const items: LinkedSection[] = [
+			{
+				sourcePath: "daily/2026-05-04.md",
+				sourceBasename: "2026-05-04",
+				headingText: "09:30",
+				headingLine: 0,
+				sectionMarkdown: "x",
+			},
+		];
+		await renderLinkedSections(container, items, fakeRender(), vi.fn());
+
+		const link = container.querySelector("details > summary a.my-plugin-linked-notes-source") as HTMLElement | null;
+		expect(link).not.toBeNull();
+		const event = new MouseEvent("click", { bubbles: true, cancelable: true });
+		link?.dispatchEvent(event);
+		expect(event.defaultPrevented).toBe(true);
 	});
 });
 

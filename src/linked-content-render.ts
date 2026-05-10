@@ -2,15 +2,18 @@ export interface LinkedSection {
 	sourcePath: string;
 	sourceBasename: string;
 	headingText: string;
+	headingLine: number;
 	sectionMarkdown: string;
 }
 
 export type RenderFn = (markdown: string, el: HTMLElement) => Promise<void>;
+export type JumpFn = (sourcePath: string, headingLine: number, ev: MouseEvent) => void;
 
 export async function renderLinkedSections(
 	container: HTMLElement,
 	items: LinkedSection[],
 	render: RenderFn,
+	onJump?: JumpFn,
 ): Promise<void> {
 	if (items.length === 0) return;
 	const doc = container.ownerDocument;
@@ -35,13 +38,23 @@ export async function renderLinkedSections(
 		details.open = true;
 		const summary = doc.createElement("summary");
 		summary.className = "tree-item-self is-clickable";
-		const source = doc.createElement("span");
+		const source = doc.createElement("a");
 		source.className = "my-plugin-linked-notes-source";
-		source.textContent = `${item.sourceBasename} > `;
+		source.textContent = item.sourceBasename;
+		source.setAttribute("href", "#");
+		source.addEventListener("click", (ev) => {
+			ev.preventDefault();
+			ev.stopPropagation();
+			onJump?.(item.sourcePath, item.headingLine, ev);
+		});
+		const sep = doc.createElement("span");
+		sep.className = "my-plugin-linked-notes-sep";
+		sep.textContent = " > ";
 		const heading = doc.createElement("span");
 		heading.className = "my-plugin-linked-notes-heading";
 		await renderInline(heading, item.headingText, render);
 		summary.appendChild(source);
+		summary.appendChild(sep);
 		summary.appendChild(heading);
 		details.appendChild(summary);
 		const body = doc.createElement("div");

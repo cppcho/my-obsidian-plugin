@@ -20,6 +20,7 @@ export interface LinkedSection {
 	sourcePath: string;
 	sourceBasename: string;
 	headingText: string;
+	headingLine: number;
 	sectionMarkdown: string;
 }
 
@@ -58,10 +59,12 @@ export function findHeadingLinkedSections(
 			const idx = source.headings.findIndex(h => h.line === r.position.start.line);
 			if (idx === -1 || used.has(idx)) continue;
 			used.add(idx);
+			const heading = source.headings[idx];
 			result.push({
 				sourcePath: source.path,
 				sourceBasename: source.basename,
-				headingText: source.headings[idx]?.heading ?? "",
+				headingText: heading?.heading ?? "",
+				headingLine: heading?.line ?? 0,
 				sectionMarkdown: extractHeadingSection(source.content, source.headings, idx),
 			});
 		}

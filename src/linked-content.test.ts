@@ -69,9 +69,24 @@ describe("findHeadingLinkedSections", () => {
 				sourcePath: "daily/2026-05-04.md",
 				sourceBasename: "2026-05-04",
 				headingText: "09:30 [[topics/React]]",
+				headingLine: 1,
 				sectionMarkdown: "content X\nmore",
 			},
 		]);
+	});
+
+	it("populates headingLine with the source heading's line number for jump-to-source", () => {
+		const sources: SourceFileInfo[] = [
+			{
+				path: "daily/2026-05-04.md",
+				basename: "2026-05-04",
+				content: ["# 2026-05-04", "", "### 09:30 [[T]]", "first", "### 14:00 [[T]]", "second"].join("\n"),
+				headings: [h(0, 1, "2026-05-04"), h(2, 3, "09:30 [[T]]"), h(4, 3, "14:00 [[T]]")],
+				refs: [ref(2), ref(4)],
+			},
+		];
+		const result = findHeadingLinkedSections("T.md", sources);
+		expect(result.map(r => r.headingLine)).toEqual([2, 4]);
 	});
 
 	it("ignores body links (not on a heading line)", () => {
