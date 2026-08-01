@@ -1,3 +1,5 @@
+import {escapeRegExp, timestampPatternSource} from "./timestamp-format";
+
 export interface EditorAdapter {
 	lineCount(): number;
 	getLine(n: number): string;
@@ -7,6 +9,8 @@ export interface EditorAdapter {
 
 export interface TimestampSettings {
 	headingLevel: number;
+	/** Moment format used to render the timestamp heading, e.g. "HH:mm". */
+	headingFormat: string;
 	cursorOnEmptyLine: boolean;
 	vimInsertMode: boolean;
 	scrolloffLines: number;
@@ -56,20 +60,15 @@ export function insertOrNavigateTimestamp(
 	editor: EditorAdapter,
 	enterVimInsertMode: (() => void) | undefined,
 	settings: TimestampSettings,
-	now: Date = new Date(),
+	timeStr: string,
 ) {
-	const timeStr =
-		String(now.getHours()).padStart(2, "0") +
-		":" +
-		String(now.getMinutes()).padStart(2, "0");
-
 	const prefix = "#".repeat(settings.headingLevel);
-	const headingRe = new RegExp(`^${prefix} ${timeStr}( |$)`);
+	const headingRe = new RegExp(`^${prefix} ${escapeRegExp(timeStr)}( |$)`);
 	let headingLine = findLine(editor, headingRe);
 
 	if (headingLine === -1) {
 		// Check if the last timestamp heading has no content — if so, replace it
-		const lastHeadingRe = new RegExp(`^${prefix} \\d{2}:\\d{2}( |$)`);
+		const lastHeadingRe = new RegExp(`^${prefix} ${timestampPatternSource(settings.headingFormat)}( |$)`);
 		let lastHeadingLine = -1;
 		for (let i = 0; i < editor.lineCount(); i++) {
 			if (lastHeadingRe.test(editor.getLine(i))) lastHeadingLine = i;

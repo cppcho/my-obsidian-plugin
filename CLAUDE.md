@@ -42,9 +42,14 @@ Core editor logic in `src/editor-utils.ts` is tested via adapter interfaces (`Ed
   - `handleMetadataChange()` — re-renders open reading-view leaves whose file is targeted by a heading-line link in the changed source.
 
 - **`src/editor-utils.ts`** — Pure editor logic, framework-independent.
-  - `insertOrNavigateTimestamp()` — finds or inserts a timestamp heading at the end of the file, positions cursor appropriately.
+  - `insertOrNavigateTimestamp()` — finds or inserts a timestamp heading at the end of the file, positions cursor appropriately. Takes the already-formatted timestamp string (main.ts renders it with `moment`), so this module stays free of Obsidian imports.
   - `placeCursorAtHeading()` — shared helper for cursor placement (on heading or empty line below).
   - `findLine()` — regex line search utility.
+
+- **`src/timestamp-format.ts`** — Pure moment-format helpers.
+  - `DEFAULT_HEADING_FORMAT` — `"HH:mm"`.
+  - `timestampPatternSource(format)` — converts a moment format string into a regex source that matches any timestamp it can render; used to recognise existing timestamp headings (deliberately loose).
+  - `escapeRegExp()` — used to match the current timestamp literally.
 
 - **`src/linked-content.ts`** — Pure logic for the linked-content feature.
   - `findHeadingLinkedSections(targetPath, sources)` — emits one section per source heading whose line contains a backlink to the target file (deduped per heading, self-links skipped).
@@ -54,7 +59,7 @@ Core editor logic in `src/editor-utils.ts` is tested via adapter interfaces (`Ed
   - `renderLinkedSections(container, items, render)` — builds an open `<details>` per source-heading section.
   - `foldSubheadings(rootEl)` — wraps each `h1..h6` plus following content into a closed nested `<details>` so subheadings start folded.
 
-Settings (`TimestampSettings`): heading level (H1–H6), cursor on empty line below heading, vim insert mode toggle, show heading-linked content in reading view.
+Settings (`TimestampSettings`): heading level (H1–H6), heading format (moment format string, default `HH:mm`), cursor on empty line below heading, vim insert mode toggle, bottom scrolloff lines, show heading-linked content in reading view.
 
 Daily note conventions: files live at `daily/{YYYY-MM-DD}.md`, first line is `# YYYY-MM-DD`, timestamp headings are appended at the end of the file.
 

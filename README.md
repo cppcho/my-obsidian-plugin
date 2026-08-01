@@ -11,6 +11,7 @@ Command: **"Insert or navigate to timestamp"**
 Opens today's daily note at `daily/YYYY-MM-DD.md` and creates or navigates to a timestamp heading for the current time. Configurable via settings:
 
 - **Heading level** — H1 through H6 (default: H3)
+- **Heading format** — [moment format](https://momentjs.com/docs/#/displaying/format/) for the timestamp text, e.g. `HH:mm` (default), `h:mm A`, `[at] HH:mm`
 - **Cursor placement** — on the heading line or on an empty line below
 - **Vim insert mode** — automatically enter insert mode after navigation (requires Obsidian vim mode)
 

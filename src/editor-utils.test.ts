@@ -26,6 +26,7 @@ function makeEditor(lines: string[]): EditorAdapter & {lines: string[]} {
 
 const defaultSettings: TimestampSettings = {
 	headingLevel: 3,
+	headingFormat: "HH:mm",
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
 	scrolloffLines: 0,
@@ -55,7 +56,7 @@ describe("findLine", () => {
 // --- insertOrNavigateTimestamp ---
 
 describe("insertOrNavigateTimestamp", () => {
-	const time = new Date(2026, 1, 28, 14, 30); // 14:30
+	const time = "14:30";
 
 	it("creates a new heading at the bottom of the file", () => {
 		const editor = makeEditor(["# 2026-02-28", ""]);
@@ -267,7 +268,7 @@ describe("insertOrNavigateTimestamp", () => {
 			"",
 			"",
 		]);
-		const time0904 = new Date(2026, 1, 28, 9, 4);
+		const time0904 = "09:04";
 		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time0904);
 
 		expect(editor.lines).toContain("### 09:04 ");
@@ -283,11 +284,79 @@ describe("insertOrNavigateTimestamp", () => {
 			"some notes here",
 			"",
 		]);
-		const time0904 = new Date(2026, 1, 28, 9, 4);
+		const time0904 = "09:04";
 		insertOrNavigateTimestamp(editor, undefined, defaultSettings, time0904);
 
 		expect(editor.lines).toContain("### 08:59 ");
 		expect(editor.lines).toContain("### 09:04 ");
+	});
+
+	it("inserts the timestamp rendered by a custom heading format", () => {
+		const editor = makeEditor(["# 2026-02-28", ""]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: "h:mm A"}, "2:30 PM");
+
+		expect(editor.lines).toContain("### 2:30 PM ");
+	});
+
+	it("navigates to an existing heading in a custom format", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"",
+			"### 2:30 PM ",
+			"note A",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: "h:mm A"}, "2:30 PM");
+
+		expect(editor.setCursor).toHaveBeenCalledWith({
+			line: 3,
+			ch: "note A".length,
+		});
+	});
+
+	it("replaces the last empty heading matching a custom format", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 1:15 PM ",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: "h:mm A"}, "2:30 PM");
+
+		expect(editor.lines).toEqual(["# 2026-02-28", "### 2:30 PM ", ""]);
+	});
+
+	it("does not treat non-timestamp headings as timestamps under a custom format", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### Scratch",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: "h:mm A"}, "2:30 PM");
+
+		expect(editor.lines).toContain("### Scratch");
+		expect(editor.lines).toContain("### 2:30 PM ");
+	});
+
+	it("treats format separators as literals, not regex metacharacters", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 14a30 ",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: "HH.mm"}, "14.30");
+
+		expect(editor.lines).toContain("### 14a30 ");
+		expect(editor.lines).toContain("### 14.30 ");
+	});
+
+	it("falls back to HH:mm when the heading format is empty", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...defaultSettings, headingFormat: ""}, "09:04");
+
+		expect(editor.lines).toEqual(["# 2026-02-28", "### 09:04 ", ""]);
 	});
 
 	it("stops section at higher-level heading (H2 stops at H1 or H2)", () => {

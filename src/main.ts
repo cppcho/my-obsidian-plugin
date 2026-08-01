@@ -3,11 +3,13 @@ import { EditorView } from "@codemirror/view";
 import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
 import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
+import { DEFAULT_HEADING_FORMAT } from "./timestamp-format";
 import { findHeadingLinkedSections, HeadingInfo, LinkedSection, SourceFileInfo } from "./linked-content";
 import { renderLinkedSections } from "./linked-content-render";
 
 const DEFAULT_SETTINGS: TimestampSettings = {
 	headingLevel: 3,
+	headingFormat: DEFAULT_HEADING_FORMAT,
 	cursorOnEmptyLine: false,
 	vimInsertMode: false,
 	scrolloffLines: 0,
@@ -63,6 +65,31 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 					.setValue(String(this.plugin.settings.headingLevel))
 					.onChange(async (value) => {
 						this.plugin.settings.headingLevel = parseInt(value);
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		const formatDesc = document.createDocumentFragment();
+		formatDesc.appendText("Time format for the timestamp heading. For a list of all available tokens, see the ");
+		formatDesc.createEl("a", {
+			text: "format reference", // eslint-disable-line obsidianmd/ui/sentence-case -- mid-sentence link text
+			attr: { href: "https://momentjs.com/docs/#/displaying/format/", target: "_blank", rel: "noopener" },
+		});
+		formatDesc.createEl("br");
+		formatDesc.appendText("Your current syntax looks like this: ");
+		const formatSampleEl = formatDesc.createEl("b", "u-pop");
+
+		new Setting(containerEl)
+			.setName("Heading format")
+			.setDesc(formatDesc)
+			.addMomentFormat((component) =>
+				component
+					.setDefaultFormat(DEFAULT_HEADING_FORMAT)
+					.setPlaceholder(DEFAULT_HEADING_FORMAT)
+					.setValue(this.plugin.settings.headingFormat)
+					.setSampleEl(formatSampleEl)
+					.onChange(async (value) => {
+						this.plugin.settings.headingFormat = value;
 						await this.plugin.saveSettings();
 					}),
 			);
@@ -158,8 +185,8 @@ export default class DailyTimestampPlugin extends Plugin {
 			id: "insert-or-navigate-timestamp",
 			name: "Insert or navigate to timestamp",
 			callback: async () => {
-				const now = new Date();
-				const adapter = { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote };
+				const timeStr = moment().format(this.settings.headingFormat.trim() || DEFAULT_HEADING_FORMAT);
+				const adapter ={ appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote };
 				const file = await getOrCreateDailyNote(adapter, moment());
 				if (!file) {
 					new Notice("Enable the Daily Notes core plugin to use this command."); // eslint-disable-line obsidianmd/ui/sentence-case
@@ -186,7 +213,7 @@ export default class DailyTimestampPlugin extends Plugin {
 					const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 					if (view) {
 						const vimFn = this.settings.vimInsertMode ? () => enterVimInsertMode(this.app) : undefined;
-						insertOrNavigateTimestamp(view.editor, vimFn, this.settings, now);
+						insertOrNavigateTimestamp(view.editor, vimFn, this.settings, timeStr);
 					}
 				}, alreadyOpen ? 0 : 100);
 			},
