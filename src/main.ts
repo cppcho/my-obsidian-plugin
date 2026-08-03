@@ -1,6 +1,6 @@
-import { App, Keymap, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, moment } from "obsidian";
+import { App, Keymap, MarkdownPostProcessorContext, MarkdownRenderChild, MarkdownRenderer, MarkdownView, Notice, Plugin, PluginSettingTab, Setting, TFile, moment, normalizePath } from "obsidian";
 import { EditorView } from "@codemirror/view";
-import { appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote } from "obsidian-daily-notes-interface";
+import { appHasDailyNotesPluginLoaded, getDailyNoteSettings, createDailyNote } from "obsidian-daily-notes-interface";
 import { insertOrNavigateTimestamp, computeScrolloffScroll, TimestampSettings } from "./editor-utils";
 import { getOrCreateDailyNote } from "./daily-note-utils";
 import { DEFAULT_HEADING_FORMAT } from "./timestamp-format";
@@ -186,12 +186,25 @@ export default class DailyTimestampPlugin extends Plugin {
 			name: "Insert or navigate to timestamp",
 			callback: async () => {
 				const timeStr = moment().format(this.settings.headingFormat.trim() || DEFAULT_HEADING_FORMAT);
-				const adapter ={ appHasDailyNotesPluginLoaded, getAllDailyNotes, getDailyNote, createDailyNote };
-				const file = await getOrCreateDailyNote(adapter, moment());
-				if (!file) {
-					new Notice("Enable the Daily Notes core plugin to use this command."); // eslint-disable-line obsidianmd/ui/sentence-case
+				const adapter = {
+					appHasDailyNotesPluginLoaded,
+					getDailyNoteSettings,
+					getNoteByPath: (path: string) => {
+						const found = this.app.vault.getAbstractFileByPath(normalizePath(path));
+						return found instanceof TFile ? found : null;
+					},
+					createDailyNote,
+				};
+				const result = await getOrCreateDailyNote(adapter, moment());
+				if ("error" in result) {
+					if (result.error === "plugin-disabled") {
+						new Notice("Enable the Daily Notes core plugin to use this command."); // eslint-disable-line obsidianmd/ui/sentence-case
+					} else {
+						new Notice("Failed to create the daily note. Check the Daily Notes core plugin settings."); // eslint-disable-line obsidianmd/ui/sentence-case
+					}
 					return;
 				}
+				const file = result.file;
 				const dailyPath = file.path;
 
 				const activeFile = this.app.workspace.getActiveFile();
