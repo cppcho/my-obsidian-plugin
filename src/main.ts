@@ -14,6 +14,7 @@ const DEFAULT_SETTINGS: TimestampSettings = {
 	vimInsertMode: false,
 	scrolloffLines: 0,
 	showLinkedContent: true,
+	insertPosition: "bottom",
 };
 
 const LINKED_NOTES_CLASS = "my-plugin-linked-notes";
@@ -90,6 +91,22 @@ class DailyTimestampSettingTab extends PluginSettingTab {
 					.setSampleEl(formatSampleEl)
 					.onChange(async (value) => {
 						this.plugin.settings.headingFormat = value;
+						await this.plugin.saveSettings();
+					}),
+			);
+
+		new Setting(containerEl)
+			.setName("New entry position")
+			.setDesc("Where a new timestamp heading goes: above the existing entries (newest first) or at the end of the note")
+			.addDropdown((dropdown) =>
+				dropdown
+					.addOptions({
+						bottom: "Bottom",
+						top: "Top",
+					})
+					.setValue(this.plugin.settings.insertPosition)
+					.onChange(async (value) => {
+						this.plugin.settings.insertPosition = value === "top" ? "top" : "bottom";
 						await this.plugin.saveSettings();
 					}),
 			);

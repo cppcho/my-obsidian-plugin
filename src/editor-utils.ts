@@ -7,6 +7,9 @@ export interface EditorAdapter {
 	setCursor(pos: {line: number; ch: number}): void;
 }
 
+/** Where a new timestamp heading goes: appended at the end, or newest-first at the top. */
+export type InsertPosition = "top" | "bottom";
+
 export interface TimestampSettings {
 	headingLevel: number;
 	/** Moment format used to render the timestamp heading, e.g. "HH:mm". */
@@ -15,6 +18,7 @@ export interface TimestampSettings {
 	vimInsertMode: boolean;
 	scrolloffLines: number;
 	showLinkedContent: boolean;
+	insertPosition: InsertPosition;
 }
 
 export interface ScrolloffInput {
@@ -56,6 +60,118 @@ function placeCursorAtHeading(editor: EditorAdapter, headingLine: number, cursor
 	}
 }
 
+const ANY_HEADING_RE = /^#{1,6} /;
+
+/** First line after the frontmatter block, or 0 when the note has none. */
+function bodyStart(editor: EditorAdapter): number {
+	if (editor.getLine(0).trim() !== "---") return 0;
+	for (let i = 1; i < editor.lineCount(); i++) {
+		if (editor.getLine(i).trim() === "---") return i + 1;
+	}
+	return 0;
+}
+
+/**
+ * First heading below the note's title heading — the anchor a top insert falls back
+ * to when there is no timestamp heading yet. Returns -1 when the title is the only
+ * heading, so everything before it (title, preamble text) stays above the new entry.
+ */
+function firstHeadingBelowTitle(editor: EditorAdapter): number {
+	const start = bodyStart(editor);
+	let titleLine = -1;
+	for (let i = start; i < editor.lineCount(); i++) {
+		if (ANY_HEADING_RE.test(editor.getLine(i))) {
+			titleLine = i;
+			break;
+		}
+	}
+	if (titleLine === -1) return -1;
+	for (let i = titleLine + 1; i < editor.lineCount(); i++) {
+		if (ANY_HEADING_RE.test(editor.getLine(i))) return i;
+	}
+	return -1;
+}
+
+/**
+ * True when nothing but blank lines follows the heading, up to `boundaryRe` (the next
+ * heading that ends the section) or the end of the file when no boundary is given.
+ */
+function sectionIsEmpty(editor: EditorAdapter, headingLine: number, boundaryRe?: RegExp): boolean {
+	for (let i = headingLine + 1; i < editor.lineCount(); i++) {
+		const line = editor.getLine(i);
+		if (boundaryRe?.test(line)) return true;
+		if (line.trim() !== "") return false;
+	}
+	return true;
+}
+
+/** Appends the heading after the last non-blank line, dropping any trailing blanks. Returns its line. */
+function appendHeading(editor: EditorAdapter, heading: string): number {
+	const lastLine = editor.lineCount() - 1;
+	const lastLineText = editor.getLine(lastLine);
+
+	let lastNonBlankLine = lastLine;
+	while (lastNonBlankLine >= 0 && editor.getLine(lastNonBlankLine).trim() === "") {
+		lastNonBlankLine--;
+	}
+
+	if (lastNonBlankLine < 0) {
+		editor.replaceRange(`${heading}\n`, {line: 0, ch: 0}, {line: lastLine, ch: lastLineText.length});
+		return 0;
+	}
+	editor.replaceRange(
+		`\n${heading}\n`,
+		{line: lastNonBlankLine, ch: editor.getLine(lastNonBlankLine).length},
+		{line: lastLine, ch: lastLineText.length},
+	);
+	return lastNonBlankLine + 1;
+}
+
+function insertHeadingAtTop(
+	editor: EditorAdapter,
+	settings: TimestampSettings,
+	heading: string,
+	timestampHeadingRe: RegExp,
+): number {
+	const anchor = findLine(editor, timestampHeadingRe);
+	if (anchor !== -1) {
+		// An empty newest entry is restamped rather than stacking another empty heading.
+		if (sectionIsEmpty(editor, anchor, new RegExp(`^#{1,${settings.headingLevel}} `))) {
+			editor.replaceRange(heading, {line: anchor, ch: 0}, {line: anchor, ch: editor.getLine(anchor).length});
+			return anchor;
+		}
+		editor.replaceRange(`${heading}\n\n`, {line: anchor, ch: 0});
+		return anchor;
+	}
+
+	const belowTitle = firstHeadingBelowTitle(editor);
+	if (belowTitle !== -1) {
+		editor.replaceRange(`${heading}\n\n`, {line: belowTitle, ch: 0});
+		return belowTitle;
+	}
+	return appendHeading(editor, heading);
+}
+
+function insertHeadingAtBottom(
+	editor: EditorAdapter,
+	settings: TimestampSettings,
+	heading: string,
+	timestampHeadingRe: RegExp,
+): number {
+	let lastHeadingLine = -1;
+	for (let i = 0; i < editor.lineCount(); i++) {
+		if (timestampHeadingRe.test(editor.getLine(i))) lastHeadingLine = i;
+	}
+
+	if (lastHeadingLine !== -1 && sectionIsEmpty(editor, lastHeadingLine)) {
+		// Replace the empty heading and the trailing blank lines below it.
+		const lastLine = editor.lineCount() - 1;
+		editor.replaceRange(`${heading}\n`, {line: lastHeadingLine, ch: 0}, {line: lastLine, ch: editor.getLine(lastLine).length});
+		return lastHeadingLine;
+	}
+	return appendHeading(editor, heading);
+}
+
 export function insertOrNavigateTimestamp(
 	editor: EditorAdapter,
 	enterVimInsertMode: (() => void) | undefined,
@@ -64,56 +180,15 @@ export function insertOrNavigateTimestamp(
 ) {
 	const prefix = "#".repeat(settings.headingLevel);
 	const headingRe = new RegExp(`^${prefix} ${escapeRegExp(timeStr)}( |$)`);
-	let headingLine = findLine(editor, headingRe);
+	const headingLine = findLine(editor, headingRe);
 
 	if (headingLine === -1) {
-		// Check if the last timestamp heading has no content — if so, replace it
-		const lastHeadingRe = new RegExp(`^${prefix} ${timestampPatternSource(settings.headingFormat)}( |$)`);
-		let lastHeadingLine = -1;
-		for (let i = 0; i < editor.lineCount(); i++) {
-			if (lastHeadingRe.test(editor.getLine(i))) lastHeadingLine = i;
-		}
-
-		if (lastHeadingLine !== -1) {
-			let hasContent = false;
-			for (let j = lastHeadingLine + 1; j < editor.lineCount(); j++) {
-				if (editor.getLine(j).trim() !== "") {
-					hasContent = true;
-					break;
-				}
-			}
-			if (!hasContent) {
-				// Replace the empty heading and trailing blank lines with the new timestamp
-				const lastLine = editor.lineCount() - 1;
-				editor.replaceRange(`${prefix} ${timeStr} \n`, {line: lastHeadingLine, ch: 0}, {line: lastLine, ch: editor.getLine(lastLine).length});
-				placeCursorAtHeading(editor, lastHeadingLine, settings.cursorOnEmptyLine);
-				if (settings.vimInsertMode && enterVimInsertMode) {
-					enterVimInsertMode();
-				}
-				return;
-			}
-		}
-
-		const lastLine = editor.lineCount() - 1;
-		const lastLineText = editor.getLine(lastLine);
-
-		let lastNonBlankLine = lastLine;
-		while (lastNonBlankLine >= 0 && editor.getLine(lastNonBlankLine).trim() === "") {
-			lastNonBlankLine--;
-		}
-
-		if (lastNonBlankLine < 0) {
-			editor.replaceRange(`${prefix} ${timeStr} \n`, {line: 0, ch: 0}, {line: lastLine, ch: lastLineText.length});
-			headingLine = 0;
-		} else {
-			editor.replaceRange(
-				`\n${prefix} ${timeStr} \n`,
-				{line: lastNonBlankLine, ch: editor.getLine(lastNonBlankLine).length},
-				{line: lastLine, ch: lastLineText.length},
-			);
-			headingLine = lastNonBlankLine + 1;
-		}
-		placeCursorAtHeading(editor, headingLine, settings.cursorOnEmptyLine);
+		const timestampHeadingRe = new RegExp(`^${prefix} ${timestampPatternSource(settings.headingFormat)}( |$)`);
+		const heading = `${prefix} ${timeStr} `;
+		const inserted = settings.insertPosition === "top"
+			? insertHeadingAtTop(editor, settings, heading, timestampHeadingRe)
+			: insertHeadingAtBottom(editor, settings, heading, timestampHeadingRe);
+		placeCursorAtHeading(editor, inserted, settings.cursorOnEmptyLine);
 	} else {
 		const headingPrefix = new RegExp(`^#{1,${settings.headingLevel}} `);
 		let endLine = headingLine;

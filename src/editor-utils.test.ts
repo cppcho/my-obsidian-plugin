@@ -31,6 +31,7 @@ const defaultSettings: TimestampSettings = {
 	vimInsertMode: false,
 	scrolloffLines: 0,
 	showLinkedContent: true,
+	insertPosition: "bottom",
 };
 
 // --- findLine ---
@@ -462,5 +463,198 @@ describe("computeScrolloffScroll", () => {
 		});
 		// desired bottom = 400 + 40 = 440; target = 440 - 400 = 40
 		expect(target).toBe(40);
+	});
+});
+
+// --- insertOrNavigateTimestamp: insert at top ---
+
+describe("insertOrNavigateTimestamp with insertPosition top", () => {
+	const time = "14:30";
+	const topSettings: TimestampSettings = {...defaultSettings, insertPosition: "top"};
+
+	it("inserts the new heading above the first timestamp heading", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"",
+			"### 09:04 ",
+			"older note",
+			"",
+			"### 11:57 ",
+			"newer note",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"",
+			"### 14:30 ",
+			"",
+			"### 09:04 ",
+			"older note",
+			"",
+			"### 11:57 ",
+			"newer note",
+		]);
+	});
+
+	it("places cursor on the newly inserted heading", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"",
+			"### 09:04 ",
+			"older note",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.setCursor).toHaveBeenCalledWith({
+			line: 2,
+			ch: "### 14:30 ".length,
+		});
+	});
+
+	it("places cursor on the empty line below the heading when cursorOnEmptyLine is true", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"",
+			"### 09:04 ",
+			"older note",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, {...topSettings, cursorOnEmptyLine: true}, time);
+
+		expect(editor.setCursor).toHaveBeenCalledWith({line: 3, ch: 0});
+	});
+
+	it("inserts before the first heading after the title when no timestamp heading exists", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"some preamble text",
+			"",
+			"## Tasks",
+			"- a",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"some preamble text",
+			"",
+			"### 14:30 ",
+			"",
+			"## Tasks",
+			"- a",
+		]);
+	});
+
+	it("appends after the leading block when the note has no heading below the title", () => {
+		const editor = makeEditor([
+			"---",
+			"foo: bar",
+			"---",
+			"# 2026-02-28",
+			"some preamble text",
+			"",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.lines).toEqual([
+			"---",
+			"foo: bar",
+			"---",
+			"# 2026-02-28",
+			"some preamble text",
+			"### 14:30 ",
+			"",
+		]);
+	});
+
+	it("skips a title-level heading inside frontmatter-free notes without treating it as an anchor", () => {
+		const editor = makeEditor(["# 2026-02-28"]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.lines[0]).toBe("# 2026-02-28");
+		expect(editor.lines).toContain("### 14:30 ");
+	});
+
+	it("replaces the topmost timestamp heading when it has no content", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"",
+			"### 08:00 ",
+			"older note",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, "09:04");
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"### 09:04 ",
+			"",
+			"### 08:00 ",
+			"older note",
+		]);
+	});
+
+	it("does not replace the topmost timestamp heading when it has content", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"some notes here",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, "09:04");
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"### 09:04 ",
+			"",
+			"### 08:59 ",
+			"some notes here",
+		]);
+	});
+
+	it("treats a subheading under the topmost timestamp heading as content", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 08:59 ",
+			"#### detail",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, "09:04");
+
+		expect(editor.lines).toContain("### 08:59 ");
+		expect(editor.lines).toContain("### 09:04 ");
+	});
+
+	it("navigates to an existing heading for the current time instead of inserting", () => {
+		const editor = makeEditor([
+			"# 2026-02-28",
+			"### 14:30 ",
+			"note A",
+			"### 09:04 ",
+			"note B",
+		]);
+		insertOrNavigateTimestamp(editor, undefined, topSettings, time);
+
+		expect(editor.setCursor).toHaveBeenCalledWith({line: 2, ch: "note A".length});
+		expect(editor.lines.filter((l) => l === "### 14:30 ")).toHaveLength(1);
+	});
+
+	it("calls enterVimInsertMode after inserting at the top", () => {
+		const editor = makeEditor(["# 2026-02-28", "### 09:04 ", "older note"]);
+		const vimFn = vi.fn();
+		insertOrNavigateTimestamp(editor, vimFn, {...topSettings, vimInsertMode: true}, time);
+
+		expect(vimFn).toHaveBeenCalled();
+	});
+
+	it("respects a custom heading level when inserting at the top", () => {
+		const editor = makeEditor(["# 2026-02-28", "## 09:04 ", "older note"]);
+		insertOrNavigateTimestamp(editor, undefined, {...topSettings, headingLevel: 2}, time);
+
+		expect(editor.lines).toEqual([
+			"# 2026-02-28",
+			"## 14:30 ",
+			"",
+			"## 09:04 ",
+			"older note",
+		]);
 	});
 });
